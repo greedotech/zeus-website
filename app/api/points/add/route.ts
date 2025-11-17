@@ -1,33 +1,61 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import supabaseAdmin from "@/lib/supabaseAdmin";
+import { requireHost } from "../_utils";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE! // server-only secret
-);
+export async function POST(req: Request) {
+  const { ctx, response } = await requireHost(req);
+  if (!ctx) return response!;
 
-export async function POST(req: NextRequest) {
   try {
-    const { amount } = await req.json();
-    const inc = Number(amount) || 0;
-    if (inc <= 0) return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+    const body = await req.json();
+    const { user_id, amount, note } = body;
 
-    // identify the user from the bearer token sent by the client
-    const authHeader = req.headers.get("Authorization") || "";
-    const supabaseForUser = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: { user } } = await supabaseForUser.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    if (!user_id || typeof amount !== "number") {
+      return NextResponse.json(
+        { error: "user_id and amount are required." },
+        { status: 400 }
+      );
+    }
 
-    // increment points atomically using the service role
-    const { error } = await supabaseAdmin.rpc("increment_points", { uid: user.id, inc });
-    if (error) throw error;
+    // Add transaction log
+    const { error: txErr } = await supabaseAdmin
+      .from("coin_transactions")
+      .insert({
+        user_id,
+        amount,
+        type: amount > 0 ? "host_add" : "host_adjust",
+        note: note || null,
+      });
 
-    return NextResponse.json({ ok: true });
+    if (txErr) throw txErr;
+
+    // Update balance
+    const { data: profileRow, error: profileErr } = await supabaseAdmin
+      .from("profiles")
+      .select("zeus_coins")
+      .eq("id", user_id)
+      .maybeSingle();
+
+    if (profileErr) throw profileErr;
+
+    const updatedBalance = (profileRow?.zeus_coins || 0) + amount;
+
+    const { error: updateErr } = await supabaseAdmin
+      .from("profiles")
+      .update({ zeus_coins: updatedBalance })
+      .eq("id", user_id);
+
+    if (updateErr) throw updateErr;
+
+    return NextResponse.json({
+      success: true,
+      new_balance: updatedBalance,
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || "Server error" }, { status: 500 });
+    console.error(e);
+    return NextResponse.json(
+      { error: "Failed to update coins", detail: e.message },
+      { status: 500 }
+    );
   }
 }
