@@ -1,3 +1,4 @@
+// app/api/points/add/route.ts
 import { NextResponse } from "next/server";
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { requireHost } from "../_utils";
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Add transaction log
+    // 1) log the transaction
     const { error: txErr } = await supabaseAdmin
       .from("coin_transactions")
       .insert({
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
 
     if (txErr) throw txErr;
 
-    // Update balance
+    // 2) read current balance
     const { data: profileRow, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .select("zeus_coins")
@@ -38,8 +39,10 @@ export async function POST(req: Request) {
 
     if (profileErr) throw profileErr;
 
-    const updatedBalance = (profileRow?.zeus_coins || 0) + amount;
+    const currentBalance = profileRow?.zeus_coins ?? 0;
+    const updatedBalance = currentBalance + amount;
 
+    // 3) update profile balance
     const { error: updateErr } = await supabaseAdmin
       .from("profiles")
       .update({ zeus_coins: updatedBalance })
