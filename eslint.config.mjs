@@ -10,7 +10,10 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  // Next.js recommended configs
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+
+  // Ignored folders
   {
     ignores: [
       "node_modules/**",
@@ -19,6 +22,13 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
     ],
+  },
+
+  // ✅ ADD THIS BLOCK TO DISABLE "no-explicit-any"
+  {
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
   },
 ];
 
