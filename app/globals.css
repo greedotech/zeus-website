@@ -1,26 +1,167 @@
-@import "tailwindcss";
-
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --accent: #FFD700; /* gold */
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Cinzel Decorative", serif; /* ✅ always Greek font */
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Clouds drifting */
+@keyframes drift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(120vw); }
+}
+
+/* Divine glowing logo */
+@keyframes divineGlow {
+  0% { filter: drop-shadow(0 0 10px gold); opacity: 0.2; }
+  50% { filter: drop-shadow(0 0 40px gold) drop-shadow(0 0 80px white); opacity: 0.35; }
+  100% { filter: drop-shadow(0 0 10px gold); opacity: 0.2; }
+}
+
+/* Column shimmer */
+@keyframes shimmer {
+  0% { filter: drop-shadow(0 0 5px gold); }
+  50% { filter: drop-shadow(0 0 25px gold) drop-shadow(0 0 40px white); }
+  100% { filter: drop-shadow(0 0 5px gold); }
+}
+
+/* Lightning flash (flicker) */
+@keyframes lightningFlash {
+  0%, 94%, 100% { opacity: 0; transform: translateY(0); }
+  95% { opacity: 1; transform: translateY(-2px); }
+  96% { opacity: 0.7; transform: translateY(1px); }
+  97% { opacity: 1; transform: translateY(-1px); }
+  98% { opacity: 0.5; transform: translateY(0); }
+  99% { opacity: 1; }
+}
+
+/* Lightning burst glow */
+@keyframes burst {
+  0%, 94%, 100% { opacity: 0; transform: scale(0.5); }
+  95% { opacity: 0.8; transform: scale(1.2); }
+  97% { opacity: 0.3; transform: scale(0.8); }
+  99% { opacity: 0.6; transform: scale(1.0); }
+}
+
+/* Lightning bolt base */
+.lightning-bolt {
+  position: absolute;
+  top: 15%;
+  width: 60px;
+  height: 200px;
+  opacity: 0;
+  z-index: 1;
+  animation: lightningFlash 12s infinite;
+  filter: drop-shadow(0 0 15px white) drop-shadow(0 0 30px yellow);
+}
+
+.lightning-bolt.left { left: 15%; animation-delay: 2s; }
+.lightning-bolt.right { right: 15%; animation-delay: 5s; }
+
+/* Lightning burst (shockwave glow) */
+.lightning-burst {
+  position: absolute;
+  top: 20%;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,200,0.8), transparent 70%);
+  opacity: 0;
+  z-index: 0;
+  animation: burst 12s infinite;
+}
+
+.lightning-burst.left { left: 10%; animation-delay: 2s; }
+.lightning-burst.right { right: 10%; animation-delay: 5s; }
+
+/* Links */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.3s;
+  font-family: "Cinzel Decorative", serif;
+}
+
+a:hover {
+  color: white;
+}
+/* === Mobile-friendly base === */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+img, svg, video { display: block; max-width: 100%; height: auto; }
+:root { --gold:#FFD700; }
+
+/* Dynamic viewport so iOS toolbars don’t chop 100vh */
+.min-h-screen { min-height: 100vh; min-height: 100dvh; }
+
+/* Larger tap targets + nicer focus */
+button, a[role="button"] { min-height: 44px; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Remove iOS tap flash */
+a, button { -webkit-tap-highlight-color: transparent; }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* === Home page helpers (match the classes used in page.tsx) === */
+.olympus-stage { /* container already on <main> */ }
+
+/* Small-screen tuning */
+@media (max-width: 768px) {
+  .column-img {
+    height: 44vh !important;
+    max-height: 44vh !important;
+  }
+  .logo-img {
+    width: clamp(56vw, 62vw, 72vw) !important;
+    max-width: 360px !important;
+    margin: 56px auto 8px !important;
+  }
+  .welcome-text {
+    padding: 10px 12px !important;
+    line-height: 1.45rem !important;
+    font-size: clamp(0.92rem, 1.6vw + 0.55rem, 1.05rem) !important;
+  }
+  .wm-left, .wm-right {
+    width: 68vw !important;
+    opacity: 0.22 !important;
+    bottom: 48px !important;
+  }
+  .wm-left { left: calc(50% - 92vw) !important; }
+  .wm-right { left: calc(50% + 18vw) !important; }
+}
+
+/* Very small phones */
+@media (max-width: 420px) {
+  .column-img { height: 38vh !important; }
+  .logo-img { width: 72vw !important; max-width: 300px !important; }
+  .wm-left, .wm-right { display: none !important; }
+}
+
+/* === reCAPTCHA scaling for tiny phones (login page) === */
+.captcha-wrap { transform-origin: 0 0; }
+@media (max-width: 340px) { .captcha-wrap { transform: scale(0.9); } }
+@media (max-width: 300px) { .captcha-wrap { transform: scale(0.8); } }
+
+/* === Social page carousel: responsive stage height === */
+.carousel-stage { height: clamp(180px, 28vh, 260px); }
+
+/* Optional safe-area utility for sticky bars/footers */
+@supports (padding: max(0px)) {
+  .safe-bottom { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
