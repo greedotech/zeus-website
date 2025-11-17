@@ -1,79 +1,60 @@
 "use client";
 
-import { useRef, useState } from "react";
-import ReCAPTCHA from "react-google-recaptcha";
-import { createClient } from "@supabase/supabase-js";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, FormEvent } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type LoginState = {
+  email: string;
+  password: string;
+};
 
-export default function LoginPage() {
-  const router = useRouter();
-  const search = useSearchParams();
-  const reason = search.get("reason");
-
-  const captchaRef = useRef<ReCAPTCHA>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function LoginInner() {
+  const searchParams = useSearchParams();
+  const [form, setForm] = useState<LoginState>({
+    email: "",
+    password: "",
+  });
   const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(
+    searchParams.get("message")
+  );
   const [err, setErr] = useState<string | null>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const onChange =
+    (field: keyof LoginState) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+    };
+
+  async function handleLogin(e: FormEvent) {
     e.preventDefault();
     if (submitting) return;
 
     setErr(null);
     setMsg(null);
-
-    const token = captchaRef.current?.getValue();
-    if (!token) {
-      setErr("Please complete the CAPTCHA first.");
-      return;
-    }
-
     setSubmitting(true);
-    try {
-      // 1) verify CAPTCHA
-      const verifyRes = await fetch("/api/recaptcha", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      const verifyJson = await verifyRes.json();
-      if (!verifyRes.ok || !verifyJson.success) {
-        setErr("CAPTCHA verification failed. Please try again.");
-        captchaRef.current?.reset();
-        setSubmitting(false);
-        return;
-      }
 
-      // 2) Supabase login
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
       });
 
       if (error) {
         setErr(error.message);
-        captchaRef.current?.reset();
-        setSubmitting(false);
-        return;
+      } else if (data.session) {
+        setMsg("Logged in successfully!");
+      } else {
+        setMsg("Check your email to finish logging in.");
       }
-
-      setMsg("Success! Redirecting…");
-      captchaRef.current?.reset();
-      router.replace("/account");
     } catch {
       setErr("Something went wrong. Please try again.");
-      captchaRef.current?.reset();
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
     <main className="login-page">
@@ -81,14 +62,8 @@ export default function LoginPage() {
         {/* LEFT: form */}
         <section className="login-card" aria-labelledby="login-title">
           <h1 id="login-title" className="login-title">
-            ZEUS LOUNGE LOGIN ⚡
+            LOGIN ⚡
           </h1>
-
-          {reason === "idle" && (
-            <div className="idle-banner">
-              You were signed out after a period of inactivity.
-            </div>
-          )}
 
           <form onSubmit={handleLogin} className="login-form" noValidate>
             <div className="row">
@@ -99,10 +74,11 @@ export default function LoginPage() {
                 id="email"
                 className="input"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
+                inputMode="email"
                 autoComplete="email"
+                value={form.email}
+                onChange={onChange("email")}
+                required
                 placeholder="you@example.com"
               />
             </div>
@@ -115,23 +91,12 @@ export default function LoginPage() {
                 id="password"
                 className="input"
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
                 autoComplete="current-password"
+                value={form.password}
+                onChange={onChange("password")}
+                required
                 placeholder="••••••••"
               />
-            </div>
-
-            <div className="row">
-              <div className="label" aria-hidden />
-              <div className="captcha-wrap">
-                <ReCAPTCHA
-                  ref={captchaRef}
-                  sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!}
-                  theme="dark"
-                />
-              </div>
             </div>
 
             <div className="row">
@@ -141,29 +106,12 @@ export default function LoginPage() {
                 disabled={submitting}
                 className="submit-btn"
               >
-                {submitting ? "Signing in…" : "Login"}
+                {submitting ? "Logging in…" : "Log in"}
               </button>
-            </div>
-
-            {/* Forgot password + messages */}
-            <div className="row small-row">
-              <div className="label" aria-hidden />
-              <div className="helper-links">
-                <a href="/forgot-password" className="helper-link">
-                  Forgot username / password?
-                </a>
-              </div>
             </div>
 
             {err && <p className="msg msg-error">{err}</p>}
             {msg && <p className="msg msg-ok">{msg}</p>}
-
-            <p className="signup-hint">
-              Don’t have an account?{" "}
-              <a href="/signup" className="signup-link">
-                Create one
-              </a>
-            </p>
           </form>
         </section>
 
@@ -173,7 +121,7 @@ export default function LoginPage() {
         </aside>
       </div>
 
-      {/* shared styles with signup (mobile-first) */}
+      {/* reuse same CSS as signup/login layout */}
       <style jsx>{`
         .login-page {
           min-height: 100dvh;
@@ -216,15 +164,6 @@ export default function LoginPage() {
           font-family: var(--font-cinzel, serif);
           letter-spacing: 0.5px;
         }
-        .idle-banner {
-          margin: 6px 0 12px;
-          padding: 8px 10px;
-          border-radius: 8px;
-          border: 1px solid #fcd34d;
-          background: rgba(254, 243, 199, 0.95);
-          color: #713f12;
-          font-size: 14px;
-        }
         .login-form {
           display: grid;
           gap: 12px;
@@ -234,9 +173,6 @@ export default function LoginPage() {
           grid-template-columns: 128px 1fr;
           align-items: center;
           gap: 12px;
-        }
-        .small-row {
-          margin-top: -4px;
         }
         .label {
           width: 128px;
@@ -252,9 +188,6 @@ export default function LoginPage() {
           border-radius: 10px;
           outline: none;
         }
-        .captcha-wrap {
-          transform-origin: 0 0;
-        }
         .submit-btn {
           padding: 10px 12px;
           background: #facc15;
@@ -269,16 +202,6 @@ export default function LoginPage() {
           opacity: 0.6;
           cursor: default;
         }
-        .helper-links {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          font-size: 13px;
-        }
-        .helper-link {
-          color: #facc15;
-          text-decoration: underline;
-        }
         .msg {
           font-size: 14px;
           margin: 8px 0 0;
@@ -288,16 +211,6 @@ export default function LoginPage() {
         }
         .msg-ok {
           color: #86efac;
-        }
-        .signup-hint {
-          margin-top: 16px;
-          text-align: center;
-          font-size: 14px;
-          color: #d1d5db;
-        }
-        .signup-link {
-          color: #facc15;
-          text-decoration: underline;
         }
         .login-aside {
           display: grid;
@@ -328,17 +241,17 @@ export default function LoginPage() {
           .label {
             width: auto;
           }
-          .captcha-wrap {
-            transform: scale(0.92);
-          }
-        }
-
-        @media (max-width: 360px) {
-          .captcha-wrap {
-            transform: scale(0.85);
-          }
         }
       `}</style>
     </main>
+  );
+}
+
+// 👇 This wrapper is what fixes the Vercel build error
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginInner />
+    </Suspense>
   );
 }
