@@ -14,16 +14,24 @@ export default function Header() {
     let mounted = true;
 
     // initial check
-    supabase.auth.getUser().then(({ data }) => {
-      if (!mounted) return;
-      setLoggedIn(!!data.user);
-    });
+    supabase.auth.getUser().then(
+  (res: import("@supabase/supabase-js").UserResponse) => {
+    if (!mounted) return;
+    const user = res.data?.user ?? null;
+    setLoggedIn(!!user);
+  }
+);
 
     // subscribe to auth changes
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      setLoggedIn(!!session?.user);
-    });
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (
+        _event: import("@supabase/supabase-js").AuthChangeEvent,
+        session: import("@supabase/supabase-js").Session | null
+      ) => {
+        if (!mounted) return;
+        setLoggedIn(!!session?.user);
+      }
+    );
 
     return () => {
       mounted = false;
@@ -93,8 +101,7 @@ export default function Header() {
             <Link href="/media" className="nav-link">
               Media
             </Link>
-            {/* You can keep or remove this desktop Signup link if you want;
-                AuthButtons already handles auth-based actions */}
+            {/* Desktop Signup link (optional, AuthButtons also handles auth actions) */}
             <Link href="/signup" className="nav-link">
               Signup
             </Link>
@@ -205,7 +212,7 @@ export default function Header() {
               Media
             </Link>
 
-            {/* 👇 This is the bit that changes based on login status */}
+            {/* This changes based on login status */}
             {loggedIn ? (
               <Link
                 href="/profile"
