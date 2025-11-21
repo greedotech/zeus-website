@@ -10,57 +10,39 @@ function json(body: any, status: number = 200) {
 }
 
 // POST /api/host/get-user
-// Body: { email?: string, username?: string }
+// Body: { query: string }
+// query is usually username (or part of it)
 export async function POST(req: Request) {
   const { ctx, response } = await requireHost(req);
-  if (!ctx) return response!;
+  if (!ctx) return response!; // not a host → handled in requireHost
 
   try {
     const body = await req.json();
-    const { email, username } = body as {
-      email?: string;
-      username?: string;
-    };
+    const { query } = body as { query?: string };
 
-    if (!email && !username) {
-      return json(
-        { error: "Provide email or username." },
-        400
-      );
+    if (!query || typeof query !== "string" || query.trim().length === 0) {
+      return json({ error: "Please provide a username to search." }, 400);
     }
 
-    let query = supabaseAdmin
+    const q = query.trim();
+
+    // 🔎 Search by username (partial match)
+    const { data, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, first_name, last_name, username, zeus_coins, referred_by, invite_code")
-      .limit(10);
-
-    if (username) {
-      query = query.ilike("username", username);
-    }
-
-    if (email) {
-      // only works if you have email on profiles;
-      // if not, you can look up via auth.users with RPC instead.
-      query = query.eq("email", email);
-    }
-
-    const { data, error } = await query;
+      .select(
+        "id, first_name, last_name, username, zeus_coins, referred_by, invite_code"
+      )
+      .ilike("username", `%${q}%`)
+      .limit(20);
 
     if (error) {
-      console.error(error);
-      return json(
-        { error: "Failed to search for user." },
-        500
-      );
+      console.error("get-user error:", error);
+      return json({ error: "Failed to search for user." }, 500);
     }
 
-    if (!data || data.length === 0) {
-      return json({ users: [] });
-    }
-
-    return json({ users: data });
+    return json({ users: data ?? [] });
   } catch (e) {
-    console.error(e);
+    console.error("get-user unexpected:", e);
     return json({ error: "Unexpected server error." }, 500);
   }
 }
