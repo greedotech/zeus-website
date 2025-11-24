@@ -40,6 +40,9 @@ export default function HostConsolePage() {
   const [checkingHost, setCheckingHost] = useState(true);
   const [hostError, setHostError] = useState<string | null>(null);
 
+  // --- Auth token for API calls ---
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
   // --- Player search / selection ---
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
@@ -57,28 +60,37 @@ export default function HostConsolePage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // ----------------------------
-  // 1) HOST-ONLY ROUTE GUARD
+  // 1) HOST-ONLY ROUTE GUARD + GET ACCESS TOKEN
   // ----------------------------
   useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
-        const { data: authData, error: authErr } =
-          await supabase.auth.getUser();
+        // Get session (user + access token)
+        const { data: sessionData, error: sessionErr } =
+          await supabase.auth.getSession();
 
-        if (authErr) throw authErr;
+        if (sessionErr) throw sessionErr;
 
-        if (!authData.user) {
+        const session = sessionData.session;
+
+        if (!session?.user) {
           if (!mounted) return;
           router.replace("/login");
           return;
         }
 
+        // Save access token for API calls
+        if (mounted) {
+          setAuthToken(session.access_token ?? null);
+        }
+
+        // Check host flag in profiles
         const { data, error } = await supabase
           .from("profiles")
           .select("is_host")
-          .eq("id", authData.user.id)
+          .eq("id", session.user.id)
           .maybeSingle();
 
         if (error) throw error;
@@ -123,11 +135,19 @@ export default function HostConsolePage() {
       return;
     }
 
+    if (!authToken) {
+      setSearchMessage("Missing Authorization bearer token. Please refresh.");
+      return;
+    }
+
     setSearching(true);
     try {
       const res = await fetch("/api/host/get-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({ query: search.trim() }),
       });
 
@@ -162,11 +182,24 @@ export default function HostConsolePage() {
   // 3) LOAD HISTORY FOR USER
   // ----------------------------
   async function loadHistory(userId: string) {
+    if (!authToken) {
+      setLoadingHistory(false);
+      return;
+    }
+
     setLoadingHistory(true);
     try {
       const [spinsRes, coinsRes] = await Promise.all([
-        fetch(`/api/host/spin-history?user_id=${encodeURIComponent(userId)}`),
-        fetch(`/api/host/coin-history?user_id=${encodeURIComponent(userId)}`),
+        fetch(`/api/host/spin-history?user_id=${encodeURIComponent(userId)}`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        }),
+        fetch(`/api/host/coin-history?user_id=${encodeURIComponent(userId)}`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        }),
       ]);
 
       const spinJson = spinsRes.ok ? await spinsRes.json() : { rows: [] };
@@ -175,7 +208,7 @@ export default function HostConsolePage() {
       setSpinHistory(spinJson.rows || []);
       setCoinHistory(coinJson.rows || []);
     } catch {
-      // Could set an error message if you want
+      // Optional: set a visible error message
     } finally {
       setLoadingHistory(false);
     }
@@ -192,12 +225,20 @@ export default function HostConsolePage() {
       return;
     }
 
+    if (!authToken) {
+      setCoinsMessage("Missing Authorization bearer token. Please refresh.");
+      return;
+    }
+
     setSavingCoins(true);
     setCoinsMessage(null);
     try {
       const res = await fetch("/api/host/add-coins", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           user_id: user.id,
           amount: coinsDelta,
@@ -420,7 +461,7 @@ export default function HostConsolePage() {
                 </div>
                 <div>
                   <strong>Zeus Coins:</strong>{" "}
-                    {user.zeus_coins?.toLocaleString() ?? 0}
+                  {user.zeus_coins?.toLocaleString() ?? 0}
                 </div>
                 <div>
                   <strong>Invite Code:</strong> {user.invite_code || "—"}
