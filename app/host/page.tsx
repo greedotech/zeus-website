@@ -5,28 +5,27 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type HostProfileRow = {
-  is_host: boolean;
+  is_host: boolean | null;
 };
 
-type FoundUser = {
+type SimpleUser = {
   id: string;
   first_name: string | null;
   last_name: string | null;
   username: string | null;
-  zeus_coins: number | null;
+  zeus_coins: number;
   referred_by: string | null;
   invite_code: string | null;
 };
 
 type SpinRow = {
   id: string;
-  spun_at: string;
-  prize_label: string;
-  prize_type: string;
-  prize_value: number;
+  created_at: string;
+  points_awarded: number;
+  note: string | null;
 };
 
-type TxRow = {
+type CoinTxRow = {
   id: string;
   created_at: string;
   amount: number;
@@ -34,89 +33,73 @@ type TxRow = {
   note: string | null;
 };
 
-type GetUserResponse = {
-  users?: FoundUser[];
-  error?: string;
-};
-
-type HistorySpinsResponse = {
-  spins?: SpinRow[];
-  error?: string;
-};
-
-type HistoryTxResponse = {
-  transactions?: TxRow[];
-  error?: string;
-};
-
-type AdjustCoinsResponse = {
-  newBalance?: number;
-  error?: string;
-};
-
 export default function HostConsolePage() {
   const router = useRouter();
 
-  const [loadingHost, setLoadingHost] = useState(true);
+  // --- Host gate state ---
+  const [checkingHost, setCheckingHost] = useState(true);
   const [hostError, setHostError] = useState<string | null>(null);
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [searchBy, setSearchBy] = useState<"username" | "email">("username");
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [results, setResults] = useState<FoundUser[]>([]);
+  // --- Player search / selection ---
+  const [search, setSearch] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [user, setUser] = useState<SimpleUser | null>(null);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
 
-  const [selectedUser, setSelectedUser] = useState<FoundUser | null>(null);
+  // --- Coins adjust ---
+  const [coinsDelta, setCoinsDelta] = useState<number>(0);
+  const [savingCoins, setSavingCoins] = useState(false);
+  const [coinsMessage, setCoinsMessage] = useState<string | null>(null);
 
-  const [deltaInput, setDeltaInput] = useState<string>("0");
-  const [noteInput, setNoteInput] = useState<string>("");
-  const [adjustLoading, setAdjustLoading] = useState(false);
-  const [adjustError, setAdjustError] = useState<string | null>(null);
-  const [adjustMsg, setAdjustMsg] = useState<string | null>(null);
+  // --- History ---
+  const [spinHistory, setSpinHistory] = useState<SpinRow[]>([]);
+  const [coinHistory, setCoinHistory] = useState<CoinTxRow[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const [spins, setSpins] = useState<SpinRow[]>([]);
-  const [spinsLoading, setSpinsLoading] = useState(false);
-  const [spinsError, setSpinsError] = useState<string | null>(null);
-
-  const [txs, setTxs] = useState<TxRow[]>([]);
-  const [txsLoading, setTxsLoading] = useState(false);
-  const [txsError, setTxsError] = useState<string | null>(null);
-
-  // ----------------- ROUTE PROTECTION: only hosts -----------------
+  // ----------------------------
+  // 1) HOST-ONLY ROUTE GUARD
+  // ----------------------------
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       try {
-        const { data: authData, error: authErr } = await supabase.auth.getUser();
+        const { data: authData, error: authErr } =
+          await supabase.auth.getUser();
+
         if (authErr) throw authErr;
-        const user = authData.user;
-        if (!user) {
-          // Not logged in → send to login
-          router.replace("/login?next=/host");
+
+        if (!authData.user) {
+          if (!mounted) return;
+          router.replace("/login");
           return;
         }
 
-        const { data: profileRow, error: profileErr } = await supabase
+        const { data, error } = await supabase
           .from("profiles")
-          .select<HostProfileRow>("is_host")
-          .eq("id", user.id)
+          .select("is_host")
+          .eq("id", authData.user.id)
           .maybeSingle();
 
-        if (profileErr) throw profileErr;
+        if (error) throw error;
+
+        const profileRow = data as HostProfileRow | null;
 
         if (!profileRow?.is_host) {
           if (!mounted) return;
           setHostError("You do not have access to the Host Console.");
-          setLoadingHost(false);
+          setCheckingHost(false);
           return;
         }
 
         if (!mounted) return;
-        setLoadingHost(false);
+        setCheckingHost(false);
       } catch (e: any) {
         if (!mounted) return;
-        setHostError(e.message || "Unable to verify host access.");
-        setLoadingHost(false);
+        setHostError(
+          e?.message || "Unable to verify host permissions. Try again later."
+        );
+        setCheckingHost(false);
       }
     })();
 
@@ -125,193 +108,138 @@ export default function HostConsolePage() {
     };
   }, [router]);
 
-  // ----------------- SEARCH PLAYER -----------------
+  // ----------------------------
+  // 2) SEARCH PLAYER
+  // ----------------------------
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    setSearchError(null);
-    setResults([]);
-    setSelectedUser(null);
-    setSpins([]);
-    setTxs([]);
+    setSearchMessage(null);
+    setUser(null);
+    setSpinHistory([]);
+    setCoinHistory([]);
 
-    const term = searchTerm.trim();
-    if (!term) {
-      setSearchError("Enter a username or email to search.");
+    if (!search.trim()) {
+      setSearchMessage("Enter a username or email to search.");
       return;
     }
 
-    setSearchLoading(true);
+    setSearching(true);
     try {
-      const body =
-        searchBy === "email" ? { email: term } : { username: term };
-
       const res = await fetch("/api/host/get-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ query: search.trim() }),
       });
 
-      const data = (await res.json()) as GetUserResponse;
+      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok || data.error) {
-        setSearchError(data.error || "Failed to search player.");
-        return;
+      if (!res.ok) {
+        throw new Error(data.error || "Search failed.");
       }
 
-      const users = data.users || [];
+      const users = (data.users || []) as SimpleUser[];
+
       if (users.length === 0) {
-        setSearchError("No players found with that query.");
-        return;
+        setSearchMessage("No player found.");
+        setUser(null);
+      } else {
+        setUser(users[0]);
+        setSearchMessage(
+          users.length > 1
+            ? `Showing first of ${users.length} matches.`
+            : null
+        );
+        void loadHistory(users[0].id);
       }
-
-      setResults(users);
-      setSelectedUser(users[0]);
-      // When we pick the first user, load their history
-      void loadHistory(users[0].id);
     } catch (e: any) {
-      setSearchError(e.message || "Unexpected error while searching.");
+      setSearchMessage(e?.message || "Search failed.");
     } finally {
-      setSearchLoading(false);
+      setSearching(false);
     }
   }
 
-  // when staff selects a different result in the list
-  function handleSelectUser(id: string) {
-    const user = results.find((u) => u.id === id) || null;
-    setSelectedUser(user);
-    setSpins([]);
-    setTxs([]);
-    if (user) {
-      void loadHistory(user.id);
-    }
-  }
-
-  // ----------------- LOAD HISTORY: spins + transactions -----------------
+  // ----------------------------
+  // 3) LOAD HISTORY FOR USER
+  // ----------------------------
   async function loadHistory(userId: string) {
-    // spins
-    setSpinsLoading(true);
-    setSpinsError(null);
+    setLoadingHistory(true);
     try {
-      const res = await fetch("/api/host/get-spins", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data = (await res.json()) as HistorySpinsResponse;
-      if (!res.ok || data.error) {
-        setSpinsError(data.error || "Unable to load spin history.");
-      } else {
-        setSpins(data.spins || []);
-      }
-    } catch (e: any) {
-      setSpinsError(e.message || "Unexpected error loading spins.");
-    } finally {
-      setSpinsLoading(false);
-    }
+      const [spinsRes, coinsRes] = await Promise.all([
+        fetch(`/api/host/spin-history?user_id=${encodeURIComponent(userId)}`),
+        fetch(`/api/host/coin-history?user_id=${encodeURIComponent(userId)}`),
+      ]);
 
-    // coin txs
-    setTxsLoading(true);
-    setTxsError(null);
-    try {
-      const res2 = await fetch("/api/host/get-transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data2 = (await res2.json()) as HistoryTxResponse;
-      if (!res2.ok || data2.error) {
-        setTxsError(data2.error || "Unable to load coin transactions.");
-      } else {
-        setTxs(data2.transactions || []);
-      }
-    } catch (e: any) {
-      setTxsError(e.message || "Unexpected error loading transactions.");
+      const spinJson = spinsRes.ok ? await spinsRes.json() : { rows: [] };
+      const coinJson = coinsRes.ok ? await coinsRes.json() : { rows: [] };
+
+      setSpinHistory(spinJson.rows || []);
+      setCoinHistory(coinJson.rows || []);
+    } catch {
+      // Could set an error message if you want
     } finally {
-      setTxsLoading(false);
+      setLoadingHistory(false);
     }
   }
 
-  // ----------------- ADJUST COINS -----------------
-  async function handleAdjustCoins() {
-    if (!selectedUser) {
-      setAdjustError("Select a player first.");
+  // ----------------------------
+  // 4) APPLY COIN CHANGE
+  // ----------------------------
+  async function handleApplyCoins(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    if (!coinsDelta) {
+      setCoinsMessage("Enter a non-zero coin amount.");
       return;
     }
 
-    setAdjustError(null);
-    setAdjustMsg(null);
-
-    const raw = deltaInput.trim();
-    if (!raw) {
-      setAdjustError("Enter a coin adjustment amount.");
-      return;
-    }
-
-    const delta = Number(raw);
-    if (!Number.isFinite(delta) || delta === 0) {
-      setAdjustError("Enter a non-zero numeric amount.");
-      return;
-    }
-
-    setAdjustLoading(true);
+    setSavingCoins(true);
+    setCoinsMessage(null);
     try {
-      const res = await fetch("/api/host/adjust-coins", {
+      const res = await fetch("/api/host/add-coins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: selectedUser.id,
-          delta,
-          note: noteInput || null,
+          user_id: user.id,
+          amount: coinsDelta,
         }),
       });
 
-      const data = (await res.json()) as AdjustCoinsResponse;
-
-      if (!res.ok || data.error) {
-        setAdjustError(data.error || "Failed to adjust coins.");
-        return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Unable to update coins.");
       }
 
-      const newBalance = data.newBalance ?? null;
-
-      // update selected user + list
-      if (newBalance !== null) {
-        setSelectedUser((prev) =>
-          prev ? { ...prev, zeus_coins: newBalance } : prev
-        );
-        setResults((prev) =>
-          prev.map((u) =>
-            u.id === selectedUser.id ? { ...u, zeus_coins: newBalance } : u
-          )
-        );
-      }
-
-      setAdjustMsg("Coins updated and logged.");
-      setDeltaInput("0");
-      setNoteInput("");
-
-      // reload tx history to show the new entry
-      await loadHistory(selectedUser.id);
+      // update local user balance
+      setUser((prev) =>
+        prev
+          ? { ...prev, zeus_coins: (prev.zeus_coins || 0) + coinsDelta }
+          : prev
+      );
+      setCoinsMessage("Coins updated and logged.");
+      setCoinsDelta(0);
+      void loadHistory(user.id);
     } catch (e: any) {
-      setAdjustError(e.message || "Unexpected error adjusting coins.");
+      setCoinsMessage(e?.message || "Failed to update coins.");
     } finally {
-      setAdjustLoading(false);
+      setSavingCoins(false);
     }
   }
 
-  // ----------------- RENDER -----------------
-  if (loadingHost) {
+  // ----------------------------
+  //  LOADING / ERROR STATES
+  // ----------------------------
+  if (checkingHost) {
     return (
       <main
         style={{
-          minHeight: "60vh",
-          background: "#000",
-          color: "#fff",
+          minHeight: "70vh",
           display: "grid",
           placeItems: "center",
+          background: "#000",
+          color: "#fff",
         }}
       >
-        Checking host access…
+        Verifying host access…
       </main>
     );
   }
@@ -320,12 +248,12 @@ export default function HostConsolePage() {
     return (
       <main
         style={{
-          minHeight: "60vh",
-          background: "#000",
-          color: "#fff",
+          minHeight: "70vh",
           display: "grid",
           placeItems: "center",
-          padding: 16,
+          padding: 24,
+          background: "#000",
+          color: "#fff",
           textAlign: "center",
         }}
       >
@@ -334,13 +262,16 @@ export default function HostConsolePage() {
     );
   }
 
+  // ----------------------------
+  //  MAIN HOST CONSOLE UI
+  // ----------------------------
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "#020617",
-        color: "#e5e7eb",
-        padding: "80px 16px 32px",
+        background: "#050510",
+        color: "#f9fafb",
+        padding: "96px 16px 32px",
         fontFamily:
           "var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif)",
       }}
@@ -358,44 +289,40 @@ export default function HostConsolePage() {
           <h1
             style={{
               fontFamily: "var(--font-cinzel), serif",
-              fontSize: "2.2rem",
-              margin: 0,
-              background: "linear-gradient(to right, #facc15, #fde68a)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              textShadow: "0 0 18px rgba(250,204,21,0.45)",
+              fontSize: "2rem",
+              marginBottom: 4,
+              color: "#fbbf24",
             }}
           >
             Zeus Host Console
           </h1>
-          <p style={{ marginTop: 6, color: "#9ca3af", fontSize: 14 }}>
-            Search players, adjust Zeus Coins, and review daily spins & coin
-            history. Changes here update live in Supabase.
+          <p style={{ margin: 0, color: "#9ca3af", fontSize: 14 }}>
+            Search a player, adjust Zeus Coins, and review their recent
+            activity.
           </p>
         </header>
 
-        {/* SEARCH PANEL */}
+        {/* 1. SEARCH PLAYER */}
         <section
           style={{
-            background: "rgba(15,23,42,0.95)",
             borderRadius: 16,
-            border: "1px solid rgba(59,130,246,0.45)",
-            padding: 16,
+            background:
+              "radial-gradient(circle at top, rgba(250,204,21,0.15), transparent 60%)",
+            border: "1px solid rgba(250,204,21,0.35)",
+            padding: "16px 18px",
             display: "grid",
             gap: 12,
           }}
         >
           <h2
             style={{
-              fontFamily: "var(--font-cinzel), serif",
-              fontSize: "1.3rem",
               margin: 0,
-              color: "#bfdbfe",
+              fontSize: 16,
+              fontFamily: "var(--font-cinzel), serif",
             }}
           >
-            1. Find a Player
+            1. Find Player
           </h2>
-
           <form
             onSubmit={handleSearch}
             style={{
@@ -405,435 +332,299 @@ export default function HostConsolePage() {
               alignItems: "center",
             }}
           >
-            <select
-              value={searchBy}
-              onChange={(e) =>
-                setSearchBy(e.target.value as "username" | "email")
-              }
-              style={{
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #334155",
-                background: "#020617",
-                color: "#e5e7eb",
-                fontSize: 14,
-              }}
-            >
-              <option value="username">By username</option>
-              <option value="email">By email</option>
-            </select>
-
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={
-                searchBy === "username"
-                  ? "Enter username (full or partial)…"
-                  : "Enter full email…"
-              }
+              placeholder="Search by username or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               style={{
-                flex: 1,
-                minWidth: 180,
+                flex: "1 1 220px",
+                minWidth: 0,
                 padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #334155",
+                borderRadius: 10,
+                border: "1px solid #4b5563",
                 background: "#020617",
                 color: "#e5e7eb",
-                fontSize: 14,
               }}
             />
-
             <button
               type="submit"
-              disabled={searchLoading}
+              disabled={searching}
               style={{
-                padding: "8px 14px",
+                padding: "9px 14px",
                 borderRadius: 999,
                 border: "none",
-                background: "#2563eb",
-                color: "#e5e7eb",
+                background:
+                  "linear-gradient(90deg, #facc15, #f97316, #ea580c)",
+                color: "#111827",
                 fontWeight: 700,
-                fontSize: 14,
-                cursor: searchLoading ? "default" : "pointer",
+                fontSize: 13,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                minWidth: 120,
               }}
             >
-              {searchLoading ? "Searching…" : "Search"}
+              {searching ? "Searching…" : "Search"}
             </button>
           </form>
-
-          {searchError && (
-            <p style={{ margin: 0, fontSize: 13, color: "#fca5a5" }}>
-              {searchError}
+          {searchMessage && (
+            <p style={{ margin: 0, fontSize: 13, color: "#e5e7eb" }}>
+              {searchMessage}
             </p>
-          )}
-
-          {results.length > 0 && (
-            <div
-              style={{
-                marginTop: 8,
-                display: "grid",
-                gap: 6,
-                fontSize: 13,
-              }}
-            >
-              <div style={{ color: "#9ca3af" }}>
-                Results ({results.length}). Click to select a player.
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gap: 4,
-                  maxHeight: 160,
-                  overflowY: "auto",
-                  paddingRight: 4,
-                }}
-              >
-                {results.map((u) => {
-                  const isSelected = selectedUser?.id === u.id;
-                  const name = [u.first_name, u.last_name]
-                    .filter(Boolean)
-                    .join(" ");
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => handleSelectUser(u.id)}
-                      style={{
-                        textAlign: "left",
-                        padding: "6px 8px",
-                        borderRadius: 8,
-                        border: "1px solid rgba(148,163,184,0.6)",
-                        background: isSelected ? "#1d4ed8" : "#020617",
-                        color: isSelected ? "#e5e7eb" : "#e5e7eb",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <div>
-                        <strong>{name || "(no name)"}</strong>{" "}
-                        {u.username && (
-                          <span style={{ color: "#93c5fd" }}>
-                            @{u.username}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#93c5fd" }}>
-                        Coins: {u.zeus_coins ?? 0}
-                        {u.invite_code && (
-                          <> • Invite: {u.invite_code}</>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           )}
         </section>
 
-        {/* PLAYER SUMMARY + COINS ADJUST */}
-        {selectedUser && (
-          <section
+        {/* 2. PLAYER OVERVIEW + 3. COINS */}
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1.1fr)",
+            gap: 16,
+          }}
+        >
+          {/* Player card */}
+          <div
             style={{
-              background: "rgba(15,23,42,0.95)",
               borderRadius: 16,
-              border: "1px solid rgba(234,179,8,0.6)",
-              padding: 16,
-              display: "grid",
-              gap: 12,
+              background: "rgba(15,23,42,0.9)",
+              border: "1px solid rgba(148,163,184,0.6)",
+              padding: "14px 16px",
+              minHeight: 140,
             }}
           >
             <h2
               style={{
-                fontFamily: "var(--font-cinzel), serif",
-                fontSize: "1.3rem",
                 margin: 0,
-                color: "#facc15",
+                marginBottom: 8,
+                fontSize: 16,
+                fontFamily: "var(--font-cinzel), serif",
               }}
             >
-              2. Player Summary & Zeus Coins
+              2. Player Overview
             </h2>
-
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 13, color: "#9ca3af" }}>Player</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>
-                  {[selectedUser.first_name, selectedUser.last_name]
-                    .filter(Boolean)
-                    .join(" ") || "(no name)"}
-                </div>
-                {selectedUser.username && (
-                  <div style={{ fontSize: 13, color: "#93c5fd" }}>
-                    @{selectedUser.username}
-                  </div>
-                )}
-                {selectedUser.invite_code && (
-                  <div style={{ fontSize: 12, color: "#a855f7" }}>
-                    Invite Code: {selectedUser.invite_code}
-                  </div>
-                )}
-              </div>
-
-              <div
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 14,
-                  border: "1px solid rgba(250,204,21,0.7)",
-                  background:
-                    "radial-gradient(circle at 0 0, rgba(250,204,21,0.25), transparent 60%)",
-                  minWidth: 180,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
-                    color: "#facc15",
-                  }}
-                >
-                  Zeus Coins
-                </div>
-                <div
-                  style={{
-                    fontSize: 26,
-                    fontWeight: 800,
-                    color: "#fef9c3",
-                  }}
-                >
-                  {(selectedUser.zeus_coins ?? 0).toLocaleString()}
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                borderTop: "1px solid rgba(51,65,85,0.7)",
-                marginTop: 8,
-                paddingTop: 8,
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  fontFamily: "var(--font-cinzel), serif",
-                  color: "#e5e7eb",
-                }}
-              >
-                Adjust Zeus Coins
-              </h3>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12,
-                  color: "#9ca3af",
-                }}
-              >
-                Enter a positive amount to add coins, or a negative amount to
-                remove coins. This is logged in <code>coin_transactions</code>.
+            {!user ? (
+              <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+                Search for a player to view their details.
               </p>
+            ) : (
+              <div style={{ fontSize: 14, display: "grid", gap: 4 }}>
+                <div>
+                  <strong>Name:</strong>{" "}
+                  {user.first_name || user.last_name
+                    ? `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim()
+                    : "—"}
+                </div>
+                <div>
+                  <strong>Username:</strong> {user.username || "—"}
+                </div>
+                <div>
+                  <strong>Zeus Coins:</strong>{" "}
+                    {user.zeus_coins?.toLocaleString() ?? 0}
+                </div>
+                <div>
+                  <strong>Invite Code:</strong> {user.invite_code || "—"}
+                </div>
+              </div>
+            )}
+          </div>
 
-              <div
+          {/* Coins editor */}
+          <div
+            style={{
+              borderRadius: 16,
+              background: "rgba(15,23,42,0.9)",
+              border: "1px solid rgba(148,163,184,0.6)",
+              padding: "14px 16px",
+              minHeight: 140,
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                marginBottom: 8,
+                fontSize: 16,
+                fontFamily: "var(--font-cinzel), serif",
+              }}
+            >
+              3. Adjust Zeus Coins
+            </h2>
+            {!user ? (
+              <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+                Select a player first.
+              </p>
+            ) : (
+              <form
+                onSubmit={handleApplyCoins}
                 style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 10,
+                  display: "grid",
+                  gap: 8,
                   alignItems: "center",
+                  gridTemplateColumns: "minmax(0, 1.1fr) auto",
                 }}
               >
                 <input
                   type="number"
-                  value={deltaInput}
-                  onChange={(e) => setDeltaInput(e.target.value)}
+                  value={coinsDelta}
+                  onChange={(e) => setCoinsDelta(Number(e.target.value))}
+                  placeholder="e.g. 500 or -500"
                   style={{
-                    width: 130,
                     padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1px solid #334155",
+                    borderRadius: 10,
+                    border: "1px solid #4b5563",
                     background: "#020617",
                     color: "#e5e7eb",
-                    fontSize: 14,
-                  }}
-                />
-                <input
-                  type="text"
-                  value={noteInput}
-                  onChange={(e) => setNoteInput(e.target.value)}
-                  placeholder="Note (e.g., deposit bonus, manual correction)…"
-                  style={{
-                    flex: 1,
-                    minWidth: 180,
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1px solid #334155",
-                    background: "#020617",
-                    color: "#e5e7eb",
-                    fontSize: 14,
                   }}
                 />
                 <button
-                  type="button"
-                  onClick={handleAdjustCoins}
-                  disabled={adjustLoading}
+                  type="submit"
+                  disabled={savingCoins}
                   style={{
                     padding: "8px 14px",
                     borderRadius: 999,
                     border: "none",
-                    background: "#facc15",
-                    color: "#111827",
-                    fontWeight: 800,
+                    background:
+                      "linear-gradient(90deg, #22c55e, #16a34a, #15803d)",
+                    color: "#022c22",
+                    fontWeight: 700,
                     fontSize: 13,
-                    textTransform: "uppercase",
                     letterSpacing: "0.06em",
-                    cursor: adjustLoading ? "default" : "pointer",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    minWidth: 120,
                   }}
                 >
-                  {adjustLoading ? "Updating…" : "Apply Change"}
+                  {savingCoins ? "Saving…" : "Apply"}
                 </button>
+                {coinsMessage && (
+                  <p
+                    style={{
+                      gridColumn: "1 / -1",
+                      margin: 0,
+                      fontSize: 13,
+                      color: "#e5e7eb",
+                    }}
+                  >
+                    {coinsMessage}
+                  </p>
+                )}
+              </form>
+            )}
+          </div>
+        </section>
+
+        {/* 4. HISTORY */}
+        <section
+          style={{
+            borderRadius: 16,
+            background: "rgba(15,23,42,0.9)",
+            border: "1px solid rgba(148,163,184,0.6)",
+            padding: "14px 16px",
+            display: "grid",
+            gap: 14,
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 16,
+              fontFamily: "var(--font-cinzel), serif",
+            }}
+          >
+            4. Recent Activity
+          </h2>
+          {!user ? (
+            <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+              Select a player to view spins and coin changes.
+            </p>
+          ) : loadingHistory ? (
+            <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+              Loading history…
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1.1fr)",
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: 0,
+                    marginBottom: 6,
+                    fontSize: 14,
+                    color: "#e5e7eb",
+                  }}
+                >
+                  Daily Spins
+                </h3>
+                {spinHistory.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+                    No spins logged yet.
+                  </p>
+                ) : (
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      fontSize: 13,
+                      display: "grid",
+                      gap: 4,
+                    }}
+                  >
+                    {spinHistory.map((row) => (
+                      <li key={row.id}>
+                        {new Date(row.created_at).toLocaleString()} –{" "}
+                        {row.points_awarded} pts{" "}
+                        {row.note ? `(${row.note})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-
-              {adjustError && (
-                <p style={{ margin: 0, fontSize: 13, color: "#fca5a5" }}>
-                  {adjustError}
-                </p>
-              )}
-              {adjustMsg && (
-                <p style={{ margin: 0, fontSize: 13, color: "#86efac" }}>
-                  {adjustMsg}
-                </p>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* HISTORY: only show when a user is selected */}
-        {selectedUser && (
-          <section
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1.1fr)",
-              gap: 16,
-            }}
-          >
-            {/* Spins */}
-            <div
-              style={{
-                background: "rgba(15,23,42,0.95)",
-                borderRadius: 16,
-                border: "1px solid rgba(96,165,250,0.7)",
-                padding: 12,
-                fontSize: 13,
-              }}
-            >
-              <h2
-                style={{
-                  margin: 0,
-                  marginBottom: 6,
-                  fontSize: 14,
-                  fontFamily: "var(--font-cinzel), serif",
-                  color: "#bfdbfe",
-                }}
-              >
-                Recent Daily Spins
-              </h2>
-              {spinsLoading && <p>Loading spins…</p>}
-              {spinsError && (
-                <p style={{ color: "#fca5a5" }}>{spinsError}</p>
-              )}
-              {!spinsLoading && !spinsError && spins.length === 0 && (
-                <p>No spins found for this player.</p>
-              )}
-              {!spinsLoading && !spinsError && spins.length > 0 && (
-                <ul
+              <div>
+                <h3
                   style={{
                     margin: 0,
-                    paddingLeft: 16,
+                    marginBottom: 6,
+                    fontSize: 14,
+                    color: "#e5e7eb",
                   }}
                 >
-                  {spins.map((s) => (
-                    <li key={s.id} style={{ marginBottom: 2 }}>
-                      <strong>{s.prize_label}</strong> –{" "}
-                      {new Date(s.spun_at).toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              )}
+                  Coin Transactions
+                </h3>
+                {coinHistory.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: "#9ca3af" }}>
+                    No coin transactions yet.
+                  </p>
+                ) : (
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      fontSize: 13,
+                      display: "grid",
+                      gap: 4,
+                    }}
+                  >
+                    {coinHistory.map((row) => (
+                      <li key={row.id}>
+                        {new Date(row.created_at).toLocaleString()} –{" "}
+                        {row.amount > 0 ? "+" : ""}
+                        {row.amount} ({row.type}
+                        {row.note ? ` – ${row.note}` : ""})
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-
-            {/* Coin txs */}
-            <div
-              style={{
-                background: "rgba(15,23,42,0.95)",
-                borderRadius: 16,
-                border: "1px solid rgba(148,163,184,0.7)",
-                padding: 12,
-                fontSize: 13,
-              }}
-            >
-              <h2
-                style={{
-                  margin: 0,
-                  marginBottom: 6,
-                  fontSize: 14,
-                  fontFamily: "var(--font-cinzel), serif",
-                  color: "#e5e7eb",
-                }}
-              >
-                Recent Zeus Coin Transactions
-              </h2>
-              {txsLoading && <p>Loading transactions…</p>}
-              {txsError && (
-                <p style={{ color: "#fca5a5" }}>{txsError}</p>
-              )}
-              {!txsLoading && !txsError && txs.length === 0 && (
-                <p>No coin transactions found for this player.</p>
-              )}
-              {!txsLoading && !txsError && txs.length > 0 && (
-                <ul
-                  style={{
-                    margin: 0,
-                    paddingLeft: 16,
-                  }}
-                >
-                  {txs.map((t) => (
-                    <li key={t.id} style={{ marginBottom: 2 }}>
-                      <strong>
-                        {t.amount > 0 ? "+" : ""}
-                        {t.amount.toLocaleString()} coins
-                      </strong>{" "}
-                      – {t.type}
-                      {t.note ? ` (${t.note})` : ""} on{" "}
-                      {new Date(t.created_at).toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-        )}
-
-        {!selectedUser && (
-          <p
-            style={{
-              marginTop: 4,
-              fontSize: 12,
-              color: "#6b7280",
-              textAlign: "center",
-            }}
-          >
-            Tip: Search for a player above to unlock coin tools and history.
-          </p>
-        )}
+          )}
+        </section>
       </div>
     </main>
   );

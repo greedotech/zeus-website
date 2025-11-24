@@ -1,4 +1,9 @@
 // app/api/host/add-coins/route.ts
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { requireHost } from "../_utils";
 
@@ -10,73 +15,93 @@ function json(body: any, status: number = 200) {
 }
 
 type AddCoinsBody = {
-  user_id: string;
-  amount: number; // positive to add, negative to subtract
-  note?: string;
+  userId: string;
+  amount: number; // can be positive (add) or negative (remove)
+  reason?: string;
 };
 
 // POST /api/host/add-coins
-// Body: { user_id: string, amount: number, note?: string }
+// Body: { userId: string, amount: number, reason?: string }
 export async function POST(req: Request) {
-  // 🔒 Ensure caller is a logged-in host
+  // 🔒 host-only guard
   const { ctx, response } = await requireHost(req);
   if (!ctx) return response!;
 
   try {
     const body = (await req.json()) as AddCoinsBody;
-    const { user_id, amount, note } = body;
+    const { userId, amount, reason } = body;
 
-    if (!user_id || typeof amount !== "number" || !Number.isFinite(amount)) {
+    if (!userId || typeof amount !== "number" || !Number.isFinite(amount)) {
       return json(
-        { error: "user_id and numeric amount are required." },
+        { error: "Missing or invalid userId/amount." },
         400
       );
     }
 
-    // 1) Get current coin balance
-    const { data: profile, error: profileErr } = await supabaseAdmin
+    // 1) Get current balance
+    const { data: profileRow, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .select("zeus_coins")
-      .eq("id", user_id)
+      .eq("id", userId)
       .maybeSingle();
 
     if (profileErr) {
-      console.error("Profile fetch error:", profileErr);
-      return json({ error: "Failed to load profile." }, 500);
+      console.error("add-coins profile error:", profileErr);
+      return json({ error: "Failed to load user profile." }, 500);
     }
 
-    const current = profile?.zeus_coins ?? 0;
-    const newBalance = current + amount;
+    if (!profileRow) {
+      return json({ error: "User not found." }, 404);
+    }
+
+    const currentCoins = profileRow.zeus_coins ?? 0;
+    const newBalance = currentCoins + amount;
+
+    if (newBalance < 0) {
+      return json(
+        { error: "This change would make the balance negative." },
+        400
+      );
+    }
 
     // 2) Update profile balance
     const { error: updateErr } = await supabaseAdmin
       .from("profiles")
       .update({ zeus_coins: newBalance })
-      .eq("id", user_id);
+      .eq("id", userId);
 
     if (updateErr) {
-      console.error("Profile update error:", updateErr);
-      return json({ error: "Failed to update coins." }, 500);
+      console.error("add-coins update error:", updateErr);
+      return json({ error: "Failed to update coin balance." }, 500);
     }
 
-    // 3) Log coin transaction (for audit)
+    // 3) Log transaction
     const { error: txErr } = await supabaseAdmin
       .from("coin_transactions")
       .insert({
-        user_id,
+        user_id: userId,
         amount,
-        type: amount > 0 ? "manual_adjust_add" : "manual_adjust_subtract",
-        note: note || "Host adjustment",
+        type: amount >= 0 ? "host_adjust" : "host_adjust_negative",
+        note: reason || null,
       });
 
     if (txErr) {
-      console.error("Transaction insert error:", txErr);
-      // Don’t fail the whole request — coins are already updated
+      console.error("add-coins tx error:", txErr);
+      // we already updated balance, so just report logging failure
+      return json({
+        error: "Balance updated, but failed to log transaction.",
+        balance: newBalance,
+      }, 500);
     }
 
-    return json({ success: true, new_balance: newBalance });
-  } catch (err) {
-    console.error("add-coins route error:", err);
+    return json({
+      success: true,
+      userId,
+      oldBalance: currentCoins,
+      newBalance,
+    });
+  } catch (e) {
+    console.error("add-coins unexpected error:", e);
     return json({ error: "Unexpected server error." }, 500);
   }
 }
