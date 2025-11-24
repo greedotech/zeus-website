@@ -9,98 +9,74 @@ function json(body: any, status: number = 200) {
   });
 }
 
+type AddCoinsBody = {
+  user_id: string;
+  amount: number; // positive to add, negative to subtract
+  note?: string;
+};
+
 // POST /api/host/add-coins
-// Body: { userId: string, amount: number, note?: string }
+// Body: { user_id: string, amount: number, note?: string }
 export async function POST(req: Request) {
+  // 🔒 Ensure caller is a logged-in host
   const { ctx, response } = await requireHost(req);
-  if (!ctx) return response!; // not authorized
+  if (!ctx) return response!;
 
   try {
-    const body = await req.json();
-    const { userId, amount, note } = body as {
-      userId?: string;
-      amount?: number;
-      note?: string;
-    };
+    const body = (await req.json()) as AddCoinsBody;
+    const { user_id, amount, note } = body;
 
-    if (!userId || typeof amount !== "number") {
+    if (!user_id || typeof amount !== "number" || !Number.isFinite(amount)) {
       return json(
-        { error: "userId and amount are required." },
+        { error: "user_id and numeric amount are required." },
         400
       );
     }
 
-    if (!Number.isFinite(amount) || amount === 0) {
-      return json(
-        { error: "Amount must be a non-zero number." },
-        400
-      );
-    }
-
-    // 1) Read current balance
+    // 1) Get current coin balance
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .select("zeus_coins")
-      .eq("id", userId)
+      .eq("id", user_id)
       .maybeSingle();
 
-    if (profileErr || !profile) {
-      return json(
-        { error: "Player profile not found." },
-        404
-      );
+    if (profileErr) {
+      console.error("Profile fetch error:", profileErr);
+      return json({ error: "Failed to load profile." }, 500);
     }
 
-    const current = profile.zeus_coins ?? 0;
+    const current = profile?.zeus_coins ?? 0;
     const newBalance = current + amount;
 
-    if (newBalance < 0) {
-      return json(
-        { error: "Resulting balance would be negative." },
-        400
-      );
-    }
-
-    // 2) Update balance
+    // 2) Update profile balance
     const { error: updateErr } = await supabaseAdmin
       .from("profiles")
       .update({ zeus_coins: newBalance })
-      .eq("id", userId);
+      .eq("id", user_id);
 
     if (updateErr) {
-      console.error(updateErr);
-      return json(
-        { error: "Failed to update coin balance." },
-        500
-      );
+      console.error("Profile update error:", updateErr);
+      return json({ error: "Failed to update coins." }, 500);
     }
 
-    // 3) Log transaction
+    // 3) Log coin transaction (for audit)
     const { error: txErr } = await supabaseAdmin
       .from("coin_transactions")
       .insert({
-        user_id: userId,
+        user_id,
         amount,
-        type: amount > 0 ? "host_award" : "host_adjust",
+        type: amount > 0 ? "manual_adjust_add" : "manual_adjust_subtract",
         note: note || "Host adjustment",
       });
 
     if (txErr) {
-      console.error(txErr);
-      // balance is already updated, so just warn:
-      return json(
-        {
-          warning:
-            "Balance updated, but transaction log failed. Check server logs.",
-          newBalance,
-        },
-        200
-      );
+      console.error("Transaction insert error:", txErr);
+      // Don’t fail the whole request — coins are already updated
     }
 
-    return json({ success: true, newBalance });
-  } catch (e) {
-    console.error(e);
+    return json({ success: true, new_balance: newBalance });
+  } catch (err) {
+    console.error("add-coins route error:", err);
     return json({ error: "Unexpected server error." }, 500);
   }
 }
