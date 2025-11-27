@@ -1,9 +1,7 @@
 // app/api/host/add-coins/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
 
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { requireHost } from "../_utils";
@@ -16,93 +14,89 @@ function json(body: any, status: number = 200) {
 }
 
 type AddCoinsBody = {
-  userId: string;
-  amount: number; // can be positive (add) or negative (remove)
-  reason?: string;
+  user_id?: string;
+  amount?: number;
+  note?: string;
+  source?: "deposit" | "facebook" | "spin" | "manual";
+  game?: string | null;
 };
 
-// POST /api/host/add-coins
-// Body: { userId: string, amount: number, reason?: string }
 export async function POST(req: Request) {
-  // 🔒 host-only guard
+  // 🔒 Host-only guard
   const { ctx, response } = await requireHost(req);
   if (!ctx) return response!;
 
   try {
     const body = (await req.json()) as AddCoinsBody;
-    const { userId, amount, reason } = body;
+    const { user_id, amount, note, source, game } = body;
 
-    if (!userId || typeof amount !== "number" || !Number.isFinite(amount)) {
-      return json(
-        { error: "Missing or invalid userId/amount." },
-        400
-      );
+    if (!user_id || typeof amount !== "number" || !Number.isFinite(amount) || amount === 0) {
+      return json({ error: "Missing or invalid user_id/amount" }, 400);
     }
 
-    // 1) Get current balance
-    const { data: profileRow, error: profileErr } = await supabaseAdmin
+    // 1) Load current profile coins
+    const { data: profile, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("zeus_coins")
-      .eq("id", userId)
+      .select("zeus_coins, favorite_game")
+      .eq("id", user_id)
       .maybeSingle();
 
-    if (profileErr) {
-      console.error("add-coins profile error:", profileErr);
-      return json({ error: "Failed to load user profile." }, 500);
+    if (profErr) {
+      console.error("add-coins: profile load error:", profErr);
+      return json({ error: "Failed to load profile" }, 500);
     }
 
-    if (!profileRow) {
-      return json({ error: "User not found." }, 404);
+    const currentCoins = profile?.zeus_coins ?? 0;
+    const newCoins = currentCoins + amount;
+
+    // 2) Figure out what kind of adjustment this was
+    const txType =
+      source === "deposit"
+        ? "DEPOSIT"
+        : source === "facebook"
+        ? "FACEBOOK"
+        : source === "spin"
+        ? "SPIN"
+        : "MANUAL";
+
+    // 3) Update profile (coins + maybe favorite_game on deposit)
+    const profileUpdate: any = { zeus_coins: newCoins };
+
+    if (txType === "DEPOSIT" && game) {
+      profileUpdate.favorite_game = game;
     }
 
-    const currentCoins = profileRow.zeus_coins ?? 0;
-    const newBalance = currentCoins + amount;
-
-    if (newBalance < 0) {
-      return json(
-        { error: "This change would make the balance negative." },
-        400
-      );
-    }
-
-    // 2) Update profile balance
-    const { error: updateErr } = await supabaseAdmin
+    const { error: updErr } = await supabaseAdmin
       .from("profiles")
-      .update({ zeus_coins: newBalance })
-      .eq("id", userId);
+      .update(profileUpdate)
+      .eq("id", user_id);
 
-    if (updateErr) {
-      console.error("add-coins update error:", updateErr);
-      return json({ error: "Failed to update coin balance." }, 500);
+    if (updErr) {
+      console.error("add-coins: profile update error:", updErr);
+      return json({ error: "Failed to update player balance" }, 500);
     }
 
-    // 3) Log transaction
+    // 4) Log transaction in coin_transactions
     const { error: txErr } = await supabaseAdmin
       .from("coin_transactions")
       .insert({
-        user_id: userId,
+        user_id,
         amount,
-        type: amount >= 0 ? "host_adjust" : "host_adjust_negative",
-        note: reason || null,
+        type: txType,
+        note: note ?? null,
       });
 
     if (txErr) {
-      console.error("add-coins tx error:", txErr);
-      // we already updated balance, so just report logging failure
-      return json({
-        error: "Balance updated, but failed to log transaction.",
-        balance: newBalance,
-      }, 500);
+      console.error("add-coins: tx insert error:", txErr);
+      // don't hard fail – coins already updated. Just return success.
     }
 
     return json({
       success: true,
-      userId,
-      oldBalance: currentCoins,
-      newBalance,
+      newBalance: newCoins,
     });
   } catch (e) {
-    console.error("add-coins unexpected error:", e);
-    return json({ error: "Unexpected server error." }, 500);
+    console.error("add-coins: unexpected error:", e);
+    return json({ error: "Unexpected server error" }, 500);
   }
 }

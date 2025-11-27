@@ -1,329 +1,331 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { getTierProgress, getTierLabel } from "@/lib/tiers";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type ProfileBits = {
+  id: string;
+  zeus_coins: number | null;
+  email: string | null;
+};
 
 export default function AccountPage() {
-  const [email, setEmail] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [profile, setProfile] = useState<ProfileBits | null>(null);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user?.email) setEmail(data.user.email);
-      setLoading(false);
+      try {
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        const user = userData.user;
+        if (!user) {
+          if (!mounted) return;
+          setErr("You must be logged in to manage your account.");
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, zeus_coins")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!mounted) return;
+        setProfile({
+          id: user.id,
+          zeus_coins: data?.zeus_coins ?? 0,
+          email: user.email ?? null,
+        });
+      } catch (e: any) {
+        if (!mounted) return;
+        setErr(e.message || "Unable to load account.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
-
-  const reauth = async () => {
-    setErr(null);
-    const { data: sessionData } = await supabase.auth.getUser();
-    const userEmail = sessionData.user?.email;
-    if (!userEmail) {
-      setErr("You must be logged in.");
-      return false;
-    }
-    const { error } = await supabase.auth.signInWithPassword({
-      email: userEmail,
-      password: currentPassword,
-    });
-    if (error) {
-      setErr("Current password is incorrect.");
-      return false;
-    }
-    return true;
-  };
-
-  const onChangeEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMsg(null);
-    setErr(null);
-    if (!(await reauth())) return;
-
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
-    if (error) {
-      setErr(error.message);
-      return;
-    }
-    setMsg("Email updated. You may need to verify the new email.");
-    setEmail(newEmail);
-    setNewEmail("");
-    setCurrentPassword("");
-  };
-
-  const onChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMsg(null);
-    setErr(null);
-    if (!(await reauth())) return;
-
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      setErr(error.message);
-      return;
-    }
-    setMsg("Password updated.");
-    setNewPassword("");
-    setCurrentPassword("");
-  };
 
   if (loading) {
     return (
       <main
         style={{
           minHeight: "60vh",
+          background: "#000",
+          color: "#fff",
           display: "grid",
           placeItems: "center",
-          color: "#fff",
-          background: "#000",
         }}
       >
-        Loading…
+        Loading account…
       </main>
     );
   }
 
+  if (err) {
+    return (
+      <main
+        style={{
+          minHeight: "60vh",
+          background: "#000",
+          color: "#fff",
+          display: "grid",
+          placeItems: "center",
+          padding: 16,
+          textAlign: "center",
+        }}
+      >
+        <p>{err}</p>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main
+        style={{
+          minHeight: "60vh",
+          background: "#000",
+          color: "#fff",
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
+        <p>Please log in to view your account.</p>
+      </main>
+    );
+  }
+
+  const coins = profile.zeus_coins ?? 0;
+  const tierProgress = getTierProgress(coins);
+  const tierLabel = getTierLabel(tierProgress.current);
+  const tierText = `${tierProgress.current} — ${tierLabel}`;
+
+  // Simple 0–100 for visual bar
+  const progressPercent = Math.max(
+    0,
+    Math.min(100, tierProgress.percentToNext ?? 100)
+  );
+
   return (
-    <main className="account-page">
-      <div className="account-shell">
-        <header className="account-header">
-          <h1>Account Settings</h1>
-          <p>
-            Signed in as: <strong>{email}</strong>
-          </p>
-          <p className="hint">
-            For your security, you&apos;ll need your <strong>current password</strong> to update
-            your email or password.
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#000",
+        color: "#fff",
+        padding: "80px 16px 32px",
+        fontFamily:
+          "var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 820,
+          margin: "0 auto",
+          display: "grid",
+          gap: 20,
+        }}
+      >
+        {/* Header */}
+        <header>
+          <h1
+            style={{
+              fontFamily: "var(--font-cinzel), serif",
+              fontSize: "2.2rem",
+              margin: 0,
+              color: "#facc15",
+            }}
+          >
+            Account & Tier
+          </h1>
+          <p style={{ marginTop: 8, color: "#9ca3af", fontSize: 14 }}>
+            View your Zeus Lounge account info and track your tier progression.
           </p>
         </header>
 
-        {/* Change Email */}
-        <section className="account-card">
-          <h2>Change Email</h2>
-          <form onSubmit={onChangeEmail} className="account-form" noValidate>
-            <label className="field">
-              <span className="field-label">Current password</span>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
-              />
-            </label>
-
-            <label className="field">
-              <span className="field-label">New email</span>
-              <input
-                type="email"
-                required
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="new@email.com"
-              />
-            </label>
-
-            <button type="submit" className="primary-btn">
-              Update email
-            </button>
-          </form>
+        {/* Account info */}
+        <section
+          style={{
+            background: "rgba(15,23,42,0.9)",
+            borderRadius: 16,
+            border: "1px solid rgba(148,163,184,0.6)",
+            padding: 16,
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              marginBottom: 6,
+              fontFamily: "var(--font-cinzel), serif",
+              fontSize: 16,
+              color: "#e5e7eb",
+            }}
+          >
+            Account Details
+          </h2>
+          <InfoRow label="Email" value={profile.email || "Not set"} />
+          <InfoRow
+            label="Zeus Coins"
+            value={coins.toLocaleString()}
+          />
         </section>
 
-        {/* Change Password */}
-        <section className="account-card">
-          <h2>Change Password</h2>
-          <form onSubmit={onChangePassword} className="account-form" noValidate>
-            <label className="field">
-              <span className="field-label">Current password</span>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
-              />
-            </label>
+        {/* Tier progression */}
+        <section
+          style={{
+            background: "rgba(12,20,35,0.95)",
+            borderRadius: 16,
+            border: "1px solid rgba(59,130,246,0.7)",
+            padding: 16,
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              marginBottom: 6,
+              fontFamily: "var(--font-cinzel), serif",
+              fontSize: 16,
+              color: "#bfdbfe",
+            }}
+          >
+            Tier Progression
+          </h2>
 
-            <label className="field">
-              <span className="field-label">New password</span>
-              <input
-                type="password"
-                required
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New strong password"
-              />
-            </label>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 14,
+              color: "#e5e7eb",
+            }}
+          >
+            Current tier:{" "}
+            <strong style={{ color: "#facc15" }}>{tierText}</strong>
+          </p>
 
-            <button type="submit" className="primary-btn">
-              Update password
-            </button>
-          </form>
+          {tierProgress.next && tierProgress.neededForNext !== null && (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                color: "#9ca3af",
+              }}
+            >
+              {tierProgress.neededForNext! > 0 ? (
+                <>
+                  You need{" "}
+                  <strong>
+                    {tierProgress.neededForNext!.toLocaleString()}
+                  </strong>{" "}
+                  more Zeus Coins to reach{" "}
+                  <strong>{tierProgress.next}</strong>.
+                </>
+              ) : (
+                <>You’re eligible for the next tier upgrade.</>
+              )}
+            </p>
+          )}
+
+          {/* Progress bar */}
+          <div style={{ marginTop: 6 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 11,
+                color: "#9ca3af",
+                marginBottom: 4,
+              }}
+            >
+              <span>Standard</span>
+              <span>Silver</span>
+              <span>Gold</span>
+              <span>Diamond</span>
+            </div>
+            <div
+              style={{
+                position: "relative",
+                height: 10,
+                borderRadius: 999,
+                background: "rgba(15,23,42,0.9)",
+                overflow: "hidden",
+                border: "1px solid rgba(148,163,184,0.6)",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "linear-gradient(90deg,#22c55e,#eab308,#f97316,#a855f7)",
+                  width: `${progressPercent}%`,
+                  transformOrigin: "left center",
+                  transition: "width 0.6s ease-out",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Static perk summary */}
+          <ul
+            style={{
+              margin: 0,
+              marginTop: 6,
+              paddingLeft: 18,
+              fontSize: 12,
+              color: "#d1d5db",
+              display: "grid",
+              gap: 2,
+            }}
+          >
+            <li>
+              <strong>Standard:</strong> No fees on deposits, standard redeem
+              fees apply.
+            </li>
+            <li>
+              <strong>Silver:</strong> We cover 50% of platform redeem fees.
+            </li>
+            <li>
+              <strong>Gold:</strong> We cover 100% of platform redeem fees.
+            </li>
+            <li>
+              <strong>Diamond:</strong> 100% of platform redeem fees + 5% match
+              on deposits over $50.
+            </li>
+          </ul>
         </section>
-
-        {err && <p className="account-msg error">{err}</p>}
-        {msg && <p className="account-msg ok">{msg}</p>}
       </div>
-
-      <style jsx>{`
-        .account-page {
-          min-height: 100dvh;
-          background: #000;
-          color: #fff;
-          padding: 16px;
-          display: flex;
-          justify-content: center;
-          font-family: var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif);
-        }
-
-        .account-shell {
-          width: 100%;
-          max-width: 900px;
-          margin: 88px auto 40px;
-          display: grid;
-          gap: 18px;
-        }
-
-        .account-header h1 {
-          font-size: 1.9rem;
-          font-weight: 800;
-          color: #facc15;
-          margin: 0 0 6px;
-          font-family: var(--font-cinzel, serif);
-          letter-spacing: 0.5px;
-        }
-
-        .account-header p {
-          margin: 0;
-          color: #d1d5db;
-          font-size: 0.96rem;
-        }
-
-        .account-header .hint {
-          margin-top: 8px;
-          font-size: 0.88rem;
-          color: #9ca3af;
-        }
-
-        .account-card {
-          background: rgba(0, 0, 0, 0.7);
-          border: 1px solid #eab308;
-          border-radius: 16px;
-          box-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
-          padding: 18px 16px 16px;
-        }
-
-        .account-card h2 {
-          font-size: 1.2rem;
-          margin: 0 0 10px;
-          color: #ffd700;
-          font-family: var(--font-cinzel, serif);
-        }
-
-        .account-form {
-          display: grid;
-          gap: 12px;
-        }
-
-        .field {
-          display: grid;
-          gap: 4px;
-          text-align: left;
-        }
-
-        .field-label {
-          font-size: 0.9rem;
-          color: #d1d5db;
-        }
-
-        .field input {
-          padding: 10px 12px;
-          background: #111827;
-          color: white;
-          border: 1px solid #374151;
-          border-radius: 10px;
-          outline: none;
-          font-size: 0.96rem;
-        }
-
-        .field input::placeholder {
-          color: #6b7280;
-        }
-
-        .primary-btn {
-          margin-top: 6px;
-          padding: 10px 12px;
-          background: #facc15;
-          color: #000;
-          border: none;
-          border-radius: 10px;
-          font-weight: 700;
-          font-size: 0.98rem;
-          cursor: pointer;
-          min-height: 44px;
-        }
-
-        .primary-btn:disabled {
-          opacity: 0.6;
-          cursor: default;
-        }
-
-        .account-msg {
-          font-size: 0.9rem;
-        }
-
-        .account-msg.error {
-          color: #fca5a5;
-        }
-
-        .account-msg.ok {
-          color: #86efac;
-        }
-
-        /* --- Mobile tweaks --- */
-        @media (max-width: 768px) {
-          .account-shell {
-            margin: 80px auto 32px;
-            gap: 14px;
-          }
-
-          .account-card {
-            padding: 16px 14px 14px;
-          }
-
-          .account-header h1 {
-            font-size: 1.7rem;
-            text-align: center;
-          }
-
-          .account-header p,
-          .account-header .hint {
-            text-align: center;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .account-page {
-            padding: 12px;
-          }
-          .account-shell {
-            margin: 76px auto 28px;
-          }
-          .account-card {
-            border-radius: 14px;
-          }
-        }
-      `}</style>
     </main>
+  );
+}
+
+function InfoRow(props: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+        gap: 8,
+        fontSize: 14,
+      }}
+    >
+      <span style={{ color: "#9ca3af" }}>{props.label}</span>
+      <span style={{ fontWeight: 500 }}>{props.value}</span>
+    </div>
   );
 }

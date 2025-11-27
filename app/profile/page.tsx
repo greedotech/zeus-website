@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { getTierLabel, getTierProgress } from "@/lib/tiers";
 
 type ProfileRow = {
   id: string;
@@ -40,7 +41,9 @@ export default function ProfilePage() {
 
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, first_name, last_name, username, dob, zeus_coins, referral_code, referred_by")
+          .select(
+            "id, first_name, last_name, username, dob, zeus_coins, referral_code, referred_by"
+          )
           .eq("id", user.id)
           .maybeSingle();
 
@@ -81,7 +84,9 @@ export default function ProfilePage() {
     if (typeof window === "undefined") return;
 
     const origin = window.location.origin;
-    setInviteLink(`${origin}/signup?ref=${encodeURIComponent(profile.referral_code)}`);
+    setInviteLink(
+      `${origin}/signup?ref=${encodeURIComponent(profile.referral_code)}`
+    );
   }, [profile?.referral_code]);
 
   // ---------- Lookup inviter (referred_by UUID) ----------
@@ -101,7 +106,9 @@ export default function ProfilePage() {
           return;
         }
 
-        setInviterName(data.username || data.referral_code || "House / Not set");
+        setInviterName(
+          data.username || data.referral_code || "House / Not set"
+        );
       } catch {
         setInviterName("House / Not set");
       }
@@ -119,7 +126,9 @@ export default function ProfilePage() {
         setTimeout(() => setCopyMsg(null), 2500);
       })
       .catch(() => {
-        setCopyMsg("Unable to copy. You can select and copy the link manually.");
+        setCopyMsg(
+          "Unable to copy. You can select and copy the link manually."
+        );
         setTimeout(() => setCopyMsg(null), 3500);
       });
   };
@@ -161,9 +170,13 @@ export default function ProfilePage() {
 
   const coins = profile?.zeus_coins ?? 0;
   const fullName =
-    (profile?.first_name || profile?.last_name)
+    profile?.first_name || profile?.last_name
       ? `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim()
       : null;
+
+  const tierProgress = getTierProgress(coins);
+  const tierLabel = getTierLabel(tierProgress.current);
+  const tierText = `${tierProgress.current} — ${tierLabel}`;
 
   return (
     <main
@@ -200,7 +213,8 @@ export default function ProfilePage() {
             Your Olympus Profile
           </h1>
           <p style={{ marginTop: 8, color: "#d1d5db" }}>
-            Manage your Zeus Lounge identity, track your coins, and explore rewards.
+            Manage your Zeus Lounge identity, track your coins, and explore
+            rewards.
           </p>
         </header>
 
@@ -237,7 +251,7 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* Coins + shortcuts */}
+            {/* Coins + Tier + shortcuts */}
             <div
               style={{
                 display: "flex",
@@ -246,10 +260,10 @@ export default function ProfilePage() {
                 flexWrap: "wrap",
               }}
             >
-              {/* Zeus Coins pill */}
+              {/* Zeus Coins + Tier pill */}
               <div
                 style={{
-                  minWidth: 150,
+                  minWidth: 180,
                   padding: "8px 12px",
                   borderRadius: 12,
                   border: "1px solid rgba(250,204,21,0.7)",
@@ -277,6 +291,39 @@ export default function ProfilePage() {
                 >
                   {coins.toLocaleString()}
                 </div>
+
+                {/* Tier display */}
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 13,
+                    color: "#e5e7eb",
+                  }}
+                >
+                  Tier:{" "}
+                  <strong style={{ color: "#facc15" }}>{tierText}</strong>
+                </div>
+
+                {tierProgress.next && tierProgress.neededForNext !== null && (
+                  <div
+                    style={{
+                      marginTop: 2,
+                      fontSize: 11,
+                      color: "#9ca3af",
+                    }}
+                  >
+                    {tierProgress.neededForNext! > 0 ? (
+                      <>
+                        {tierProgress.neededForNext!.toLocaleString()} more
+                        coins to reach{" "}
+                        <strong>{tierProgress.next}</strong> (
+                        {tierProgress.percentToNext}% of this tier).
+                      </>
+                    ) : (
+                      <>Eligible for next tier upgrade.</>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Rewards + Bonus buttons */}
@@ -357,6 +404,7 @@ export default function ProfilePage() {
                 : "Not set"
             }
           />
+          <InfoRow label="Tier" value={tierText} />
 
           <p
             style={{
@@ -412,10 +460,7 @@ export default function ProfilePage() {
             Referral & Invites
           </h2>
 
-          <InfoRow
-            label="Referred by"
-            value={inviterName || "House / Not set"}
-          />
+          <InfoRow label="Referred by" value={inviterName || "House / Not set"} />
 
           <InfoRow
             label="Your invite code"

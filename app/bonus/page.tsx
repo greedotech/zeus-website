@@ -2,744 +2,574 @@
 
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { getTierProgress, getTierLabel } from "@/lib/tiers";
 
-type ProfileRow = {
+type ProfileBits = {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
-  username: string | null;
-  dob: string | null;
   zeus_coins: number | null;
 };
 
-type Segment = {
+type SpinResult = {
   label: string;
-  value: number;
-  kind: "PERCENT" | "COINS";
+  reward: number;
 };
-
-type SpinRow = {
-  id: string;
-  created_at: string;
-  result_label: string;
-  result_kind: "PERCENT" | "COINS";
-  result_value: number;
-};
-
-// 🎯 wheel segments
-const SEGMENTS: Segment[] = [
-  { label: "5% Match Boost", value: 5, kind: "PERCENT" },
-  { label: "10% Match Boost", value: 10, kind: "PERCENT" },
-  { label: "15% Match Boost", value: 15, kind: "PERCENT" },
-  { label: "20% Match Boost", value: 20, kind: "PERCENT" },
-  { label: "+25 Zeus Coins", value: 25, kind: "COINS" },
-  { label: "+50 Zeus Coins", value: 50, kind: "COINS" },
-];
-
-const LOCAL_KEY_LAST_SPIN = "zeus_last_daily_spin";
-const LOCAL_KEY_LAST_RESULT = "zeus_last_daily_result";
 
 export default function BonusPage() {
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [profile, setProfile] = useState<ProfileBits | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [profileError, setProfileError] = useState<string | null>(null);
 
-  // live coins state (so we can update after spin)
-  const [coins, setCoins] = useState<number>(0);
-
-  // wheel state
   const [spinning, setSpinning] = useState(false);
-  const [spinAngle, setSpinAngle] = useState(0);
-  const [spinAvailable, setSpinAvailable] = useState(true);
-  const [resultIndex, setResultIndex] = useState<number | null>(null);
+  const [wheelRotation, setWheelRotation] = useState(0);
 
-  // spin history
-  const [history, setHistory] = useState<SpinRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [result, setResult] = useState<SpinResult | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState<Date | null>(null);
 
-  // ---------- load profile ----------
+  // --- Load minimal profile (coins) to show tier + perks ---
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       try {
         const { data: userData, error: userErr } = await supabase.auth.getUser();
         if (userErr) throw userErr;
         const user = userData.user;
         if (!user) {
-          setProfileError("You must be logged in to access the Bonus Center.");
+          if (!mounted) return;
+          setProfile(null);
           setLoadingProfile(false);
           return;
         }
 
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, first_name, last_name, username, dob, zeus_coins")
+          .select("id, zeus_coins")
           .eq("id", user.id)
           .maybeSingle();
 
         if (error) throw error;
-        if (!mounted) return;
 
-        if (data) {
-          setProfile(data);
-          setCoins(data.zeus_coins ?? 0);
-        } else {
-          const fallback: ProfileRow = {
-            id: user.id,
-            first_name: (user.user_metadata as any)?.first_name ?? null,
-            last_name: (user.user_metadata as any)?.last_name ?? null,
-            username: (user.user_metadata as any)?.username ?? null,
-            dob: (user.user_metadata as any)?.dob ?? null,
-            zeus_coins: 0,
-          };
-          setProfile(fallback);
-          setCoins(0);
-        }
-      } catch (e: any) {
         if (!mounted) return;
-        setProfileError(e.message || "Unable to load profile.");
+        setProfile({
+          id: user.id,
+          zeus_coins: data?.zeus_coins ?? 0,
+        });
+      } catch {
+        if (!mounted) return;
+        setProfile(null);
       } finally {
         if (mounted) setLoadingProfile(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
   }, []);
 
-  // ---------- load daily availability from localStorage ----------
-  useEffect(() => {
-    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const storedDate =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(LOCAL_KEY_LAST_SPIN)
-        : null;
-    const storedResult =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(LOCAL_KEY_LAST_RESULT)
-        : null;
+  // --- Derived tier info ---
+  const coins = profile?.zeus_coins ?? 0;
+  const tierProgress = getTierProgress(coins);
+  const tierLabel = getTierLabel(tierProgress.current);
 
-    if (storedDate === todayStr) {
-      setSpinAvailable(false);
-      if (storedResult) {
-        const idx = Number(storedResult);
-        if (!Number.isNaN(idx)) setResultIndex(idx);
-      }
-    } else {
-      setSpinAvailable(true);
-      setResultIndex(null);
+  // --- Handle spin ---
+  const handleSpin = async () => {
+    if (spinning) return;
+    setError(null);
+    setMessage(null);
+
+    // Cooldown already active (from earlier response)
+    if (cooldownUntil && cooldownUntil.getTime() > Date.now()) {
+      setError(
+        `You already spun today. Next spin: ${cooldownUntil.toLocaleString()}`
+      );
+      return;
     }
-  }, []);
-
-  // ---------- load recent spin history (last 10 from bonus_spins) ----------
-  useEffect(() => {
-    const loadHistory = async () => {
-      if (!profile?.id) return;
-      setHistoryLoading(true);
-      setHistoryError(null);
-      try {
-        const { data, error } = await supabase
-          .from("bonus_spins")
-          .select("id, created_at, result_label, result_kind, result_value")
-          .eq("user_id", profile.id)
-          .order("created_at", { ascending: false })
-          .limit(10);
-
-        if (error) throw error;
-        setHistory(data || []);
-      } catch (e: any) {
-        setHistoryError(e.message || "Unable to load spin history.");
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
-
-    loadHistory();
-  }, [profile?.id]);
-
-  const refreshHistory = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("bonus_spins")
-        .select("id, created_at, result_label, result_kind, result_value")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (error) throw error;
-      setHistory(data || []);
-    } catch (e) {
-      console.error("Failed to refresh history", e);
-    }
-  };
-
-  // ---------- spin handler (calls /api/bonus/spin) ----------
-  const handleSpin = () => {
-    if (spinning || !spinAvailable) return;
 
     setSpinning(true);
 
-    // random segment
-    const idx = Math.floor(Math.random() * SEGMENTS.length);
-    setResultIndex(idx);
+    // Give the wheel a big spin visually
+    const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
+    const finalRotation = wheelRotation + extraTurns * 360 + (Math.random() * 360);
+    setWheelRotation(finalRotation);
 
-    // each slice has same angle
-    const slice = 360 / SEGMENTS.length;
-    const targetAngle = 360 * 5 + (slice * idx + slice / 2); // 5 spins + center of slice
-    setSpinAngle(targetAngle);
+    try {
+      const res = await fetch("/api/bonus/daily", {
+        method: "POST",
+      });
 
-    setTimeout(async () => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const json = await res.json().catch(() => ({}));
 
-      // lock on this device
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(LOCAL_KEY_LAST_SPIN, todayStr);
-        window.localStorage.setItem(LOCAL_KEY_LAST_RESULT, String(idx));
-      }
-
-      // tell backend & update coins/history
-      try {
-        const seg = SEGMENTS[idx];
-
-        const res = await fetch("/api/bonus/spin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            label: seg.label,
-            value: seg.value,
-            kind: seg.kind,
-          }),
-        });
-
-        const json = await res.json();
-
-        if (!res.ok) {
-          console.error("Spin log failed:", json);
-        } else {
-          if (typeof json.newBalance === "number") {
-            setCoins(json.newBalance);
-          }
-          if (profile?.id) {
-            await refreshHistory(profile.id);
-          }
+      if (res.status === 429) {
+        // cooldown
+        setResult(null);
+        setError("You’ve already taken today’s spin.");
+        if (json.cooldownEndsAt) {
+          const d = new Date(json.cooldownEndsAt);
+          setCooldownUntil(d);
+          setMessage(`Next spin available at ${d.toLocaleString()}.`);
         }
-      } catch (e) {
-        console.error("Error logging spin:", e);
-      }
+      } else if (!res.ok) {
+        setResult(null);
+        setError(json.error || "Failed to record daily spin.");
+      } else {
+        // success
+        const r: SpinResult = {
+          reward: json.reward ?? 0,
+          label: json.label ?? "Spin complete",
+        };
+        setResult(r);
 
-      setSpinning(false);
-      setSpinAvailable(false);
-    }, 2800);
+        if (r.reward > 0) {
+          setMessage(`Nice! You won ${r.reward} Zeus Coins.`);
+        } else {
+          setMessage(`Result: ${r.label}`);
+        }
+
+        // Optionally refresh coins in memory (so tier updates)
+        if (profile) {
+          // Just add reward locally so UI feels responsive
+          setProfile({
+            ...profile,
+            zeus_coins: (profile.zeus_coins ?? 0) + r.reward,
+          });
+        }
+      }
+    } catch {
+      setResult(null);
+      setError("Something went wrong. Please try again.");
+    } finally {
+      // let the wheel finish spinning visually before re-enabling
+      setTimeout(() => setSpinning(false), 2200);
+    }
   };
 
-  // ---------- birthday logic ----------
-  const dobStr = profile?.dob || null;
-  let birthdayMessage: string | null = null;
-  let isBirthday = false;
-
-  if (dobStr) {
-    const dob = new Date(dobStr);
-    const today = new Date();
-    const thisYear = today.getFullYear();
-    const nextBirthday = new Date(thisYear, dob.getMonth(), dob.getDate());
-
-    if (
-      nextBirthday.getDate() === today.getDate() &&
-      nextBirthday.getMonth() === today.getMonth()
-    ) {
-      isBirthday = true;
-      birthdayMessage =
-        "Happy Birthday! Ask a host about your Zeus birthday bonus 🎉";
-    } else {
-      if (nextBirthday < today) {
-        nextBirthday.setFullYear(thisYear + 1);
-      }
-      const diffMs = nextBirthday.getTime() - today.getTime();
-      const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      birthdayMessage = `Your next birthday bonus unlocks in ${days} day${
-        days === 1 ? "" : "s"
-      }.`;
-    }
-  }
-
-  const selected = resultIndex !== null ? SEGMENTS[resultIndex] : null;
-
-  // ---------- loading / error states ----------
-  if (loadingProfile) {
-    return (
-      <main
-        style={{
-          minHeight: "60vh",
-          background: "#000",
-          color: "#fff",
-          display: "grid",
-          placeItems: "center",
-        }}
-      >
-        Loading bonus center…
-      </main>
-    );
-  }
-
-  if (profileError) {
-    return (
-      <main
-        style={{
-          minHeight: "60vh",
-          background: "#000",
-          color: "#fff",
-          display: "grid",
-          placeItems: "center",
-          padding: 16,
-          textAlign: "center",
-        }}
-      >
-        <p>{profileError}</p>
-      </main>
-    );
-  }
-
-  // ---------- main UI ----------
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "#000",
-        color: "#fff",
-        padding: "80px 16px 32px",
+        padding: "90px 16px 32px",
+        background: "radial-gradient(circle at top, #020617, #000)",
+        color: "#f9fafb",
         fontFamily:
           "var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif)",
       }}
     >
       <div
         style={{
-          maxWidth: 960,
+          maxWidth: 1040,
           margin: "0 auto",
           display: "grid",
           gap: 20,
         }}
       >
-        {/* Header */}
-        <header>
+        {/* HEADER */}
+        <header style={{ textAlign: "center" }}>
           <h1
             style={{
               fontFamily: "var(--font-cinzel), serif",
               fontSize: "2.4rem",
               margin: 0,
-              background: "linear-gradient(to right, #FFD700, #FFF8DC)",
+              background: "linear-gradient(to right, #facc15, #fb923c)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
-              textShadow: "0 0 15px rgba(255,255,255,0.45)",
             }}
           >
-            Zeus Bonus Center
+            Daily Zeus Spin
           </h1>
-          <p style={{ marginTop: 8, color: "#d1d5db" }}>
-            Spin your daily wheel, check your birthday bonus, and keep an eye on
-            your Zeus Coins.
+          <p style={{ marginTop: 8, color: "#9ca3af", fontSize: 14 }}>
+            Come back every day for a free spin and a chance at extra Zeus Coins.
           </p>
         </header>
 
-        {/* Coins + daily info */}
+        {/* MAIN LAYOUT: Wheel + Rules / Tier */}
         <section
-          style={{
-            background: "rgba(0,0,0,0.7)",
-            borderRadius: 16,
-            border: "1px solid #eab308",
-            boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
-            padding: 16,
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "#9ca3af",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-              }}
-            >
-              Zeus Coins
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: "#fef9c3" }}>
-              {coins.toLocaleString()}
-            </div>
-          </div>
-          <div style={{ maxWidth: 360, fontSize: 14, color: "#e5e7eb" }}>
-            Daily spins can award <strong>match boosts</strong> or extra{" "}
-            <strong>Zeus Coins</strong>. Show your result to a host before your
-            next deposit to claim.
-          </div>
-        </section>
-
-        {/* Wheel + birthday/claim info (responsive grid) */}
-        <section
-          className="bonus-grid-section"
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1.2fr)",
-            gap: 20,
+            gap: 18,
+            gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
           }}
         >
-          {/* Wheel block */}
+          {/* LEFT: Wheel + button + result */}
           <div
             style={{
-              background: "rgba(15,15,25,0.85)",
-              borderRadius: 16,
-              border: "1px solid rgba(250,204,21,0.4)",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.7)",
-              padding: 16,
+              background: "rgba(15,23,42,0.9)",
+              borderRadius: 18,
+              border: "1px solid rgba(251,191,36,0.6)",
+              padding: 20,
+              boxShadow: "0 20px 40px rgba(0,0,0,0.6)",
               display: "grid",
-              gap: 12,
-              placeItems: "center",
+              gap: 16,
+              justifyItems: "center",
             }}
           >
-            <h2
-              style={{
-                fontFamily: "var(--font-cinzel), serif",
-                fontSize: "1.4rem",
-                margin: 0,
-                color: "#facc15",
-              }}
-            >
-              Daily Lightning Spin ⚡
-            </h2>
-
-            {/* Wheel + pointer */}
+            {/* Wheel wrapper */}
             <div
               style={{
                 position: "relative",
-                width: "min(260px, 70vw)",
-                height: "min(260px, 70vw)",
+                width: 260,
+                height: 260,
+                display: "grid",
+                placeItems: "center",
               }}
             >
+              {/* Glow */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "999px",
+                  boxShadow: "0 0 40px rgba(250,204,21,0.35)",
+                  opacity: 0.7,
+                }}
+              />
+
               {/* Pointer */}
               <div
                 style={{
                   position: "absolute",
-                  top: -10,
+                  top: -6,
                   left: "50%",
                   transform: "translateX(-50%)",
                   width: 0,
                   height: 0,
                   borderLeft: "10px solid transparent",
                   borderRight: "10px solid transparent",
-                  borderBottom: "20px solid #facc15",
-                  filter: "drop-shadow(0 0 6px rgba(250,204,21,0.75))",
+                  borderBottom: "18px solid #facc15",
+                  filter: "drop-shadow(0 0 8px rgba(250,204,21,0.8))",
                   zIndex: 3,
                 }}
               />
 
-              {/* Wheel disc */}
+              {/* Wheel */}
               <div
                 style={{
-                  position: "absolute",
-                  inset: 0,
-                  borderRadius: "50%",
-                  border: "4px solid #facc15",
+                  position: "relative",
+                  width: 220,
+                  height: 220,
+                  borderRadius: "999px",
                   background:
-                    "conic-gradient(from 0deg, #111827, #1f2937, #111827, #1f2937, #111827)",
-                  boxShadow:
-                    "0 0 30px rgba(0,0,0,0.9), 0 0 16px rgba(250,204,21,0.4)",
-                  transform: `rotate(${spinAngle}deg)`,
+                    "conic-gradient(#facc15 0deg 90deg, #22c55e 90deg 180deg, #38bdf8 180deg 270deg, #a855f7 270deg 360deg)",
+                  border: "6px solid #111827",
+                  transform: `rotate(${wheelRotation}deg)`,
                   transition: spinning
-                    ? "transform 2.8s cubic-bezier(0.19, 1, 0.22, 1)"
-                    : "none",
+                    ? "transform 2.2s cubic-bezier(0.15, 0.8, 0.25, 1)"
+                    : "transform 0.4s ease-out",
                   display: "grid",
                   placeItems: "center",
                   overflow: "hidden",
                 }}
               >
-                {/* Inner glow + text */}
+                {/* Center disc */}
                 <div
                   style={{
-                    width: "72%",
-                    height: "72%",
-                    borderRadius: "50%",
+                    width: 90,
+                    height: 90,
+                    borderRadius: "999px",
                     background:
-                      "radial-gradient(circle at 30% 20%, #facc15, #92400e 65%, #0b1120 100%)",
+                      "radial-gradient(circle at 30% 20%, #fefce8, #facc15)",
+                    border: "3px solid rgba(0,0,0,0.6)",
                     display: "grid",
                     placeItems: "center",
+                    boxShadow: "0 0 20px rgba(250,204,21,0.6)",
+                    fontSize: 16,
+                    fontWeight: 800,
+                    color: "#1f2937",
                     textAlign: "center",
-                    padding: 12,
-                    color: "#111",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    textShadow:
-                      "0 0 6px rgba(255,255,255,0.6), 0 0 12px rgba(0,0,0,0.8)",
+                    padding: 6,
                   }}
                 >
-                  <div>Spin to</div>
-                  <div>Charge Your</div>
-                  <div style={{ fontSize: 18 }}>Zeus Bonus</div>
+                  Zeus
+                  <br />
+                  Spin
+                </div>
+
+                {/* Segment labels (purely visual) */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    color: "#0f172a",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  <WheelLabel text="No Win" angle={45} />
+                  <WheelLabel text="+100" angle={135} />
+                  <WheelLabel text="+250" angle={225} />
+                  <WheelLabel text="+500" angle={315} />
                 </div>
               </div>
             </div>
 
+            {/* Spin button */}
             <button
+              type="button"
               onClick={handleSpin}
-              disabled={!spinAvailable || spinning}
+              disabled={spinning}
               style={{
-                marginTop: 8,
-                padding: "10px 18px",
+                padding: "10px 26px",
                 borderRadius: 999,
                 border: "none",
-                background: spinAvailable
-                  ? "linear-gradient(90deg, #facc15, #f97316)"
-                  : "#4b5563",
-                color: spinAvailable ? "#000" : "#9ca3af",
+                background: spinning
+                  ? "linear-gradient(90deg, #6b7280, #4b5563)"
+                  : "linear-gradient(90deg, #facc15, #fb923c, #f97316)",
+                color: "#111827",
                 fontWeight: 800,
-                letterSpacing: "0.06em",
+                fontSize: 14,
+                letterSpacing: "0.09em",
                 textTransform: "uppercase",
-                cursor: spinAvailable && !spinning ? "pointer" : "default",
-                minWidth: 180,
+                cursor: spinning ? "default" : "pointer",
+                boxShadow: spinning
+                  ? "none"
+                  : "0 12px 25px rgba(248, 250, 252, 0.3)",
+                minWidth: 200,
               }}
             >
-              {spinning
-                ? "Spinning…"
-                : spinAvailable
-                ? "Spin Now"
-                : "Come back tomorrow"}
+              {spinning ? "Spinning…" : "Tap to Spin"}
             </button>
 
-            {selected && (
-              <p
-                style={{
-                  margin: 0,
-                  marginTop: 4,
-                  fontSize: 13,
-                  color: "#e5e7eb",
-                  textAlign: "center",
-                }}
-              >
-                Today’s result:{" "}
-                <strong style={{ color: "#facc15" }}>{selected.label}</strong>.
-                Show this to your host before your next deposit to claim.
-              </p>
-            )}
+            {/* Messages */}
+            <div style={{ textAlign: "center", minHeight: 40 }}>
+              {error && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: "#fecaca",
+                  }}
+                >
+                  {error}
+                </p>
+              )}
+              {message && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: "#bbf7d0",
+                  }}
+                >
+                  {message}
+                </p>
+              )}
+              {result && !error && (
+                <p
+                  style={{
+                    marginTop: 6,
+                    fontSize: 13,
+                    color: "#e5e7eb",
+                  }}
+                >
+                  Result: <strong>{result.label}</strong>{" "}
+                  {result.reward > 0 && `(+${result.reward} Zeus Coins)`}
+                </p>
+              )}
+            </div>
           </div>
 
-          {/* Right column: birthday + claim info */}
-          <div style={{ display: "grid", gap: 14 }}>
-            {/* Birthday box */}
-            <section
+          {/* RIGHT: Rules + Tier perks */}
+          <div
+            style={{
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            {/* Rules card */}
+            <article
               style={{
                 background: "rgba(15,23,42,0.9)",
-                borderRadius: 14,
-                border: "1px solid rgba(129,140,248,0.45)",
-                padding: 14,
+                borderRadius: 16,
+                border: "1px solid rgba(148,163,184,0.6)",
+                padding: 16,
+                fontSize: 14,
               }}
             >
               <h2
                 style={{
-                  fontFamily: "var(--font-cinzel), serif",
-                  fontSize: "1.25rem",
                   margin: 0,
-                  marginBottom: 6,
+                  marginBottom: 8,
+                  fontFamily: "var(--font-cinzel), serif",
+                  fontSize: 16,
+                  color: "#e5e7eb",
+                }}
+              >
+                Daily Spin Rules
+              </h2>
+              <ul
+                style={{
+                  margin: 0,
+                  paddingLeft: 18,
+                  color: "#d1d5db",
+                  display: "grid",
+                  gap: 4,
+                  fontSize: 13,
+                }}
+              >
+                <li>One free spin every 24 hours per player account.</li>
+                <li>Rewards are granted immediately when your spin completes.</li>
+                <li>
+                  Possible outcomes: No win, +100, +250, or +500 Zeus Coins
+                  (subject to change during promos).
+                </li>
+                <li>
+                  Zeus Coins can be used toward redeems and special promotions based
+                  on your account tier.
+                </li>
+              </ul>
+              <p
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: "#9ca3af",
+                }}
+              >
+                Abuse, multiple accounts, or bonus misuse may result in removal
+                of free spin access or Zeus Coins at host discretion.
+              </p>
+            </article>
+
+            {/* Tier perks card */}
+            <article
+              style={{
+                background: "rgba(12,20,35,0.95)",
+                borderRadius: 16,
+                border: "1px solid rgba(59,130,246,0.7)",
+                padding: 16,
+                fontSize: 14,
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  marginBottom: 8,
+                  fontFamily: "var(--font-cinzel), serif",
+                  fontSize: 16,
                   color: "#bfdbfe",
                 }}
               >
-                Birthday Bonus 🎂
+                Your Zeus Tier & Perks
               </h2>
 
-              {dobStr ? (
+              {loadingProfile ? (
+                <p style={{ margin: 0, color: "#9ca3af", fontSize: 13 }}>
+                  Loading your coins and tier…
+                </p>
+              ) : !profile ? (
+                <p style={{ margin: 0, color: "#9ca3af", fontSize: 13 }}>
+                  Log in to see your tier and bonus perks.
+                </p>
+              ) : (
                 <>
                   <p
                     style={{
                       margin: 0,
                       marginBottom: 4,
-                      fontSize: 14,
+                      fontSize: 13,
                       color: "#e5e7eb",
                     }}
                   >
-                    Birth date on file:{" "}
-                    <strong>
-                      {new Date(dobStr).toLocaleDateString()}
+                    Current tier:{" "}
+                    <strong style={{ color: "#facc15" }}>
+                      {tierProgress.current} — {tierLabel}
                     </strong>
-                    .
                   </p>
                   <p
                     style={{
                       margin: 0,
-                      fontSize: 13,
-                      color: isBirthday ? "#facc15" : "#cbd5f5",
-                    }}
-                  >
-                    {birthdayMessage}
-                  </p>
-                  <p
-                    style={{
-                      marginTop: 6,
+                      marginBottom: 6,
                       fontSize: 12,
                       color: "#9ca3af",
                     }}
                   >
-                    Birth date is locked after signup to protect age
-                    verification and eligibility.
+                    Zeus Coins: {coins.toLocaleString()}
                   </p>
-                </>
-              ) : (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 14,
-                    color: "#e5e7eb",
-                  }}
-                >
-                  We don&apos;t have a birthday on file. Contact support if you
-                  believe this is a mistake.
-                </p>
-              )}
-            </section>
 
-            {/* How to claim */}
-            <section
-              style={{
-                background: "rgba(15,15,25,0.85)",
-                borderRadius: 14,
-                border: "1px solid rgba(148,163,184,0.5)",
-                padding: 14,
-                fontSize: 13,
-                color: "#e5e7eb",
-                lineHeight: 1.6,
-              }}
-            >
-              <h2
-                style={{
-                  fontFamily: "var(--font-cinzel), serif",
-                  fontSize: "1.15rem",
-                  margin: 0,
-                  marginBottom: 4,
-                  color: "#EED27A",
-                }}
-              >
-                How to Claim Your Bonus
-              </h2>
-              <ol style={{ paddingLeft: 20, margin: "4px 0 6px" }}>
-                <li>Spin your daily wheel in the Bonus Center.</li>
-                <li>Screenshot or show your result to a Zeus Lounge host.</li>
-                <li>
-                  Host applies the match boost or Zeus Coins according to the
-                  current promotion rules.
-                </li>
-              </ol>
-              <p style={{ margin: 0, color: "#9ca3af" }}>
-                Daily spins, birthday rewards, and Zeus Coins are subject to
-                change as promotions update. Ask a host anytime if you&apos;re
-                unsure what&apos;s currently active.
-              </p>
-            </section>
-          </div>
-        </section>
+                  {/* Progress text */}
+                  {tierProgress.next && tierProgress.neededForNext !== null && (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 12,
+                        color: "#9ca3af",
+                      }}
+                    >
+                      {tierProgress.neededForNext! > 0 ? (
+                        <>
+                          Earn{" "}
+                          <strong>
+                            {tierProgress.neededForNext!.toLocaleString()}
+                          </strong>{" "}
+                          more Zeus Coins to reach{" "}
+                          <strong>{tierProgress.next}</strong>.
+                        </>
+                      ) : (
+                        <>Eligible for next tier upgrade.</>
+                      )}
+                    </p>
+                  )}
 
-        {/* Spin history */}
-        <section
-          style={{
-            background: "rgba(15,15,25,0.85)",
-            borderRadius: 14,
-            border: "1px solid rgba(148,163,184,0.5)",
-            padding: 14,
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: "var(--font-cinzel), serif",
-              fontSize: "1.2rem",
-              margin: 0,
-              marginBottom: 6,
-              color: "#EED27A",
-            }}
-          >
-            Recent Spins
-          </h2>
-
-          {historyLoading && (
-            <p style={{ fontSize: 14, color: "#e5e7eb", marginTop: 4 }}>
-              Loading your history…
-            </p>
-          )}
-
-          {historyError && (
-            <p style={{ fontSize: 14, color: "#fca5a5", marginTop: 4 }}>
-              {historyError}
-            </p>
-          )}
-
-          {!historyLoading && !historyError && history.length === 0 && (
-            <p style={{ fontSize: 14, color: "#e5e7eb", marginTop: 4 }}>
-              No spins recorded yet. Spin the wheel to log your first bonus!
-            </p>
-          )}
-
-          {!historyLoading && !historyError && history.length > 0 && (
-            <ul
-              style={{
-                listStyle: "none",
-                padding: 0,
-                margin: "6px 0 0",
-                display: "grid",
-                gap: 6,
-              }}
-            >
-              {history.map((row) => {
-                const d = new Date(row.created_at);
-                return (
-                  <li
-                    key={row.id}
+                  {/* Perks summary */}
+                  <ul
                     style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      justifyContent: "space-between",
-                      gap: 8,
-                      fontSize: 13,
-                      borderBottom: "1px dashed rgba(55,65,81,0.7)",
-                      paddingBottom: 4,
+                      marginTop: 10,
+                      marginBottom: 0,
+                      paddingLeft: 18,
+                      fontSize: 12,
+                      color: "#d1d5db",
+                      display: "grid",
+                      gap: 2,
                     }}
                   >
-                    <span style={{ color: "#e5e7eb" }}>
-                      {row.result_label}
-                    </span>
-                    <span style={{ color: "#9ca3af" }}>
-                      {d.toLocaleDateString()}{" "}
-                      {d.toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                    <li>
+                      <strong>Standard:</strong> No fees on deposits, standard
+                      redeem fees apply.
+                    </li>
+                    <li>
+                      <strong>Silver:</strong> We cover 50% of platform redeem
+                      fees.
+                    </li>
+                    <li>
+                      <strong>Gold:</strong> We cover 100% of platform redeem
+                      fees.
+                    </li>
+                    <li>
+                      <strong>Diamond:</strong> 100% of platform redeem fees +
+                      5% match on deposits over $50.
+                    </li>
+                  </ul>
+                </>
+              )}
+            </article>
+          </div>
         </section>
-
-        <p
-          style={{
-            fontSize: 12,
-            color: "#9ca3af",
-            textAlign: "center",
-            marginTop: 6,
-          }}
-        >
-          Tip: On mobile, the wheel, birthday bonus, and history are stacked so
-          you can spin and scroll comfortably with one hand.
-        </p>
       </div>
-
-      {/* small responsive tweak for the 2-column section */}
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .bonus-grid-section {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </main>
+  );
+}
+
+/** Small helper to position text around the wheel */
+function WheelLabel({ text, angle }: { text: string; angle: number }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        transform: `rotate(${angle}deg) translate(0, -42%)`,
+        transformOrigin: "center bottom",
+        textAlign: "center",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-block",
+          transform: `rotate(${-angle}deg)`,
+        }}
+      >
+        {text}
+      </span>
+    </div>
   );
 }

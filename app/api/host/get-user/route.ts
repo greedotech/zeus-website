@@ -4,7 +4,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { requireHost } from "../_utils";
 
@@ -24,7 +23,7 @@ type GetUserBody = {
 // POST /api/host/get-user
 // Body: { email?: string, username?: string, inviteCode?: string }
 export async function POST(req: Request) {
-  // 🔒 Host-only guard
+  // 🔒 Host-only guard (uses Authorization: Bearer <token> header)
   const { ctx, response } = await requireHost(req);
   if (!ctx) return response!;
 
@@ -50,19 +49,21 @@ export async function POST(req: Request) {
         zeus_coins,
         referred_by,
         invite_code,
-        email
+        email,
+        account_tier,
+        lifetime_coins_spent
       `
       )
       .limit(20);
 
-    // Apply filters — we only use one at a time in a simple way
+    // Apply exactly one filter based on what was sent
     if (inviteCode) {
       query = query.eq("invite_code", inviteCode);
     } else if (username) {
       // prefix match, case-insensitive
       query = query.ilike("username", `${username}%`);
     } else if (email) {
-      // prefix match on email if you have an email column on profiles
+      // prefix match on email if you have email on profiles
       query = query.ilike("email", `${email}%`);
     }
 
