@@ -4,6 +4,7 @@ import { useState, FormEvent } from "react";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import Link from "next/link";
 
 type LoginState = {
   email: string;
@@ -17,9 +18,7 @@ function LoginInner() {
     password: "",
   });
   const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState<string | null>(
-    searchParams.get("message")
-  );
+  const [msg, setMsg] = useState<string | null>(searchParams.get("message"));
   const [err, setErr] = useState<string | null>(null);
 
   const onChange =
@@ -99,6 +98,22 @@ function LoginInner() {
               />
             </div>
 
+            {/* Forgot password */}
+            <div className="row">
+              <div />
+              <Link
+                href="/forgot-password"
+                style={{
+                  color: "#93c5fd",
+                  fontSize: "14px",
+                  textDecoration: "underline",
+                  marginTop: "-4px",
+                }}
+              >
+                Forgot your password?
+              </Link>
+            </div>
+
             <div className="row">
               <div className="label" aria-hidden />
               <button
@@ -115,13 +130,13 @@ function LoginInner() {
           </form>
         </section>
 
-        {/* RIGHT: logo (hidden on small screens) */}
+        {/* RIGHT: logo (hidden on mobile) */}
         <aside className="login-aside" aria-hidden>
-          <img src="/images/logo.jpg" alt="" className="login-logo" />
+          <img src="/images/logo.jpg" alt="Zeus Lounge Logo" className="login-logo" />
         </aside>
       </div>
 
-      {/* reuse same CSS as signup/login layout */}
+      {/* INLINE CSS */}
       <style jsx>{`
         .login-page {
           min-height: 100dvh;
@@ -222,7 +237,6 @@ function LoginInner() {
           object-fit: contain;
           filter: drop-shadow(0 0 18px rgba(255, 215, 0, 0.25));
         }
-
         @media (max-width: 820px) {
           .login-shell {
             grid-template-columns: 1fr;
@@ -247,7 +261,7 @@ function LoginInner() {
   );
 }
 
-// 👇 This wrapper is what fixes the Vercel build error
+/* Wrapper to avoid Vercel Suspense errors */
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>

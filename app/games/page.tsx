@@ -11,112 +11,111 @@ type Game = {
 
 const games: Game[] = [
   {
-    slug: "v-blink",
-    title: "V BLINK",
-    image: "/images/logos/vblink.jpg",
-    description: "High-velocity sweeps hub with lightning-fast spins.",
-  },
-  {
-    slug: "ultra-panda",
-    title: "ULTRA PANDA",
-    image: "/images/logos/ultrapanda.jpg",
-    description: "Panda-themed reels, easy bonuses, and wild fun.",
-  },
-  {
     slug: "fire-kirin",
     title: "FIRE KIRIN",
-    image: "/images/logos/firekirin.jpg",
+    image: "/logos/firekirin.jpg",
     description: "Arcade-style fish shooter with dynamic multipliers.",
-  },
-  {
-    slug: "orion-stars",
-    title: "ORION STARS",
-    image: "/images/logos/orionstars.jpg",
-    description: "Galaxy-inspired slots with constellation jackpots.",
-  },
-  {
-    slug: "riversweeps",
-    title: "RIVERSWEEPS",
-    image: "/images/logos/riversweeps.jpg",
-    description: "Smooth cascading reels with hidden wins.",
-  },
-  {
-    slug: "juwa",
-    title: "JUWA",
-    image: "/images/logos/juwa.jpg", // <- make sure this filename matches exactly
-    description: "Neon-style slots and fish games with daily rewards.",
-  },
-  {
-    slug: "lucky-stars",
-    title: "LUCKY STARS",
-    image: "/images/logos/luckystars.jpg",
-    description: "Bright cosmic reels and star-powered spins.",
-  },
-  {
-    slug: "noble",
-    title: "NOBLE",
-    image: "/images/logos/noble.jpg",
-    description: "Regal-themed games with high-paying bonuses.",
   },
   {
     slug: "fire-phoenix",
     title: "FIRE PHOENIX",
-    image: "/images/logos/firephoenix.jpg",
+    image: "/logos/firephoenix.jpg",
     description: "Reborn reels and fiery jackpots await.",
-  },
-  {
-    slug: "king-kong",
-    title: "KING KONG",
-    image: "/images/logos/kingkong.jpg",
-    description: "Jungle mayhem with mega multipliers.",
-  },
-  {
-    slug: "vegas-x",
-    title: "VEGAS X",
-    image: "/images/logos/vegasx.jpg",
-    description: "Neon Vegas energy and classic gameplay.",
   },
   {
     slug: "gamevault",
     title: "GAMEVAULT",
-    image: "/images/logos/gamevault.jpg",
+    image: "/logos/gamevault.jpg",
     description: "A vault of entertainment and bonuses.",
   },
   {
     slug: "golden-dragon",
     title: "GOLDEN DRAGON",
-    image: "/images/logos/goldendragon.jpg",
+    image: "/logos/goldendragon.jpg",
     description: "Golden scales and flame-breathing prizes.",
   },
   {
-    slug: "pandora-games",
-    title: "PANDORA",
-    image: "/images/logos/pandora.jpg",
-    description: "Mythic reels—open the box for big rewards.",
+    slug: "juwa",
+    title: "JUWA",
+    image: "/logos/juwa.jpg",
+    description: "Neon-style slots and fish games with daily rewards.",
+  },
+  {
+    slug: "king-kong",
+    title: "KING KONG",
+    image: "/logos/kingkong.jpg",
+    description: "Jungle mayhem with mega multipliers.",
+  },
+  {
+    slug: "lucky-stars",
+    title: "LUCKY STARS",
+    image: "/logos/luckystars.jpg",
+    description: "Bright cosmic reels and star-powered spins.",
   },
   {
     slug: "mega-spins",
     title: "MEGA SPINS",
-    image: "/images/logos/megaspin.jpg",
+    image: "/logos/megaspin.jpg",
     description: "Fast spins and epic momentum rounds.",
-  },
-  {
-    slug: "nova-play",
-    title: "NOVA PLAY",
-    image: "/images/logos/novaplay.jpg",
-    description: "Cosmic visuals and supernova jackpots.",
   },
   {
     slug: "milky-way",
     title: "MILKY WAY",
-    image: "/images/logos/milkyway.jpg",
+    image: "/logos/milkyway.jpg",
     description: "Galaxy reels with infinite possibilities.",
   },
-  // 🆕 Golden City
+  {
+    slug: "noble",
+    title: "NOBLE",
+    image: "/logos/noble.jpg",
+    description: "Regal-themed games with high-paying bonuses.",
+  },
+  {
+    slug: "nova-play",
+    title: "NOVA PLAY",
+    image: "/logos/novaplay.jpg",
+    description: "Cosmic visuals and supernova jackpots.",
+  },
+  {
+    slug: "orion-stars",
+    title: "ORION STARS",
+    image: "/logos/orionstars.jpg",
+    description: "Galaxy-inspired slots with constellation jackpots.",
+  },
+  {
+    slug: "pandora-games",
+    title: "PANDORA",
+    image: "/logos/pandora.jpg",
+    description: "Mythic reels—open the box for big rewards.",
+  },
+  {
+    slug: "riversweeps",
+    title: "RIVERSWEEPS",
+    image: "/logos/riversweeps.jpg",
+    description: "Smooth cascading reels with hidden wins.",
+  },
+  {
+    slug: "ultra-panda",
+    title: "ULTRA PANDA",
+    image: "/logos/ultrapanda.jpg",
+    description: "Panda-themed reels, easy bonuses, and wild fun.",
+  },
+  {
+    slug: "v-blink",
+    title: "V BLINK",
+    image: "/logos/vblink.jpg",
+    description: "High-velocity sweeps hub with lightning-fast spins.",
+  },
+  {
+    slug: "vegas-x",
+    title: "VEGAS X",
+    image: "/logos/vegasx.jpg",
+    description: "Neon Vegas energy and classic gameplay.",
+  },
   {
     slug: "golden-city",
     title: "GOLDEN CITY",
-    image: "/images/Logos/Goldencity.jpg", // case must match file exactly
+    image: "/logos/Goldencity.jpg", // case matches file
     description: "Shimmering streets, golden bonuses, and massive wins.",
   },
 ];
