@@ -1,14 +1,13 @@
 // app/api/bonus/daily/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import supabaseAdmin from "@/lib/supabaseAdmin";
 
 type SpinReward = {
   label: string;
   value: number;
 };
 
-// Server-side reward table (edit these however you want)
+// Server-side reward table
 const REWARDS: SpinReward[] = [
   { label: "No win today", value: 0 },
   { label: "+100 Zeus Coins", value: 100 },
@@ -18,19 +17,34 @@ const REWARDS: SpinReward[] = [
 
 const COOLDOWN_HOURS = 24;
 
-export async function POST(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
+// Helper: read user from Authorization: Bearer <token>
+async function getUserFromRequest(req: NextRequest) {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return null;
+  }
 
-  // 1) Auth
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) {
+  const token = authHeader.slice("Bearer ".length).trim();
+  if (!token) return null;
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data?.user) {
+    console.error("daily spin - auth error:", error);
+    return null;
+  }
+
+  return data.user;
+}
+
+export async function POST(req: NextRequest) {
+  // 1) Auth via Bearer token
+  const user = await getUserFromRequest(req);
+  if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const user = auth.user;
-
   // 2) Check last spin for cooldown
-  const { data: lastSpin, error: lastErr } = await supabase
+  const { data: lastSpin, error: lastErr } = await supabaseAdmin
     .from("daily_spins")
     .select("created_at")
     .eq("user_id", user.id)
@@ -68,7 +82,7 @@ export async function POST(req: NextRequest) {
   const chosen = REWARDS[idx];
 
   // 4) Log spin (note is NOT NULL in DB, so use empty string instead of null)
-  const { error: insertErr } = await supabase.from("daily_spins").insert({
+  const { error: insertErr } = await supabaseAdmin.from("daily_spins").insert({
     user_id: user.id,
     reward: chosen.value,
     label: chosen.label,
@@ -82,9 +96,6 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  // (Optional) if you later want to also update profiles.zeus_coins & ledger,
-  // you can add that logic here.
 
   return NextResponse.json({
     success: true,

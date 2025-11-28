@@ -73,7 +73,7 @@ export default function BonusPage() {
   const tierProgress = getTierProgress(coins);
   const tierLabel = getTierLabel(tierProgress.current);
 
-  // --- Handle spin ---
+  // --- Handle spin (with auth token) ---
   const handleSpin = async () => {
     if (spinning) return;
     setError(null);
@@ -89,14 +89,28 @@ export default function BonusPage() {
 
     setSpinning(true);
 
-    // Give the wheel a big spin visually
-    const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
-    const finalRotation = wheelRotation + extraTurns * 360 + (Math.random() * 360);
-    setWheelRotation(finalRotation);
-
     try {
+      // 0) Make sure we have a logged-in session + access token
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) {
+        setError("Please log in to use the Daily Zeus Spin.");
+        setSpinning(false);
+        return;
+      }
+      const token = data.session.access_token;
+
+      // 1) Give the wheel a big spin visually
+      const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
+      const finalRotation =
+        wheelRotation + extraTurns * 360 + Math.random() * 360;
+      setWheelRotation(finalRotation);
+
+      // 2) Call the API with Authorization header
       const res = await fetch("/api/bonus/daily", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const json = await res.json().catch(() => ({}));
@@ -127,14 +141,15 @@ export default function BonusPage() {
           setMessage(`Result: ${r.label}`);
         }
 
-        // Optionally refresh coins in memory (so tier updates)
-        if (profile) {
-          // Just add reward locally so UI feels responsive
-          setProfile({
-            ...profile,
-            zeus_coins: (profile.zeus_coins ?? 0) + r.reward,
-          });
-        }
+        // Update coins locally so the tier UI updates
+        setProfile((prev) =>
+          prev
+            ? {
+                ...prev,
+                zeus_coins: (prev.zeus_coins ?? 0) + r.reward,
+              }
+            : prev
+        );
       }
     } catch {
       setResult(null);
@@ -414,8 +429,8 @@ export default function BonusPage() {
                   (subject to change during promos).
                 </li>
                 <li>
-                  Zeus Coins can be used toward redeems and special promotions based
-                  on your account tier.
+                  Zeus Coins can be used toward redeems and special promotions
+                  based on your account tier.
                 </li>
               </ul>
               <p
@@ -486,7 +501,6 @@ export default function BonusPage() {
                     Zeus Coins: {coins.toLocaleString()}
                   </p>
 
-                  {/* Progress text */}
                   {tierProgress.next && tierProgress.neededForNext !== null && (
                     <p
                       style={{
@@ -510,7 +524,6 @@ export default function BonusPage() {
                     </p>
                   )}
 
-                  {/* Perks summary */}
                   <ul
                     style={{
                       marginTop: 10,
