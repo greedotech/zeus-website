@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getTierProgress, getTierLabel } from "@/lib/tiers";
 
+
 type ProfileBits = {
   id: string;
   zeus_coins: number | null;
@@ -13,7 +14,15 @@ type SpinResult = {
   label: string;
   reward: number;
 };
-
+async function getAccessToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("Not logged in");
+  }
+  return token;
+}
 export default function BonusPage() {
   const [profile, setProfile] = useState<ProfileBits | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -73,8 +82,7 @@ export default function BonusPage() {
   const tierProgress = getTierProgress(coins);
   const tierLabel = getTierLabel(tierProgress.current);
 
-  // --- Handle spin (with auth token) ---
-  const handleSpin = async () => {
+    const handleSpin = async () => {
     if (spinning) return;
     setError(null);
     setMessage(null);
@@ -89,27 +97,18 @@ export default function BonusPage() {
 
     setSpinning(true);
 
+    // Give the wheel a big spin visually
+    const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
+    const finalRotation =
+      wheelRotation + extraTurns * 360 + Math.random() * 360;
+    setWheelRotation(finalRotation);
+
     try {
-      // 0) Make sure we have a logged-in session + access token
-      const { data, error } = await supabase.auth.getSession();
-      if (error || !data.session?.access_token) {
-        setError("Please log in to use the Daily Zeus Spin.");
-        setSpinning(false);
-        return;
-      }
-      const token = data.session.access_token;
-
-      // 1) Give the wheel a big spin visually
-      const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
-      const finalRotation =
-        wheelRotation + extraTurns * 360 + Math.random() * 360;
-      setWheelRotation(finalRotation);
-
-      // 2) Call the API with Authorization header
+      const token = await getAccessToken(); // 👈 NEW
       const res = await fetch("/api/bonus/daily", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token}`, // 👈 NEW
         },
       });
 
@@ -141,21 +140,18 @@ export default function BonusPage() {
           setMessage(`Result: ${r.label}`);
         }
 
-        // Update coins locally so the tier UI updates
-        setProfile((prev) =>
-          prev
-            ? {
-                ...prev,
-                zeus_coins: (prev.zeus_coins ?? 0) + r.reward,
-              }
-            : prev
-        );
+        if (profile) {
+          // local bump so UI updates immediately
+          setProfile({
+            ...profile,
+            zeus_coins: (profile.zeus_coins ?? 0) + r.reward,
+          });
+        }
       }
-    } catch {
+    } catch (e: any) {
       setResult(null);
-      setError("Something went wrong. Please try again.");
+      setError(e?.message || "Something went wrong. Please try again.");
     } finally {
-      // let the wheel finish spinning visually before re-enabling
       setTimeout(() => setSpinning(false), 2200);
     }
   };
@@ -257,7 +253,7 @@ export default function BonusPage() {
                 }}
               />
 
-              {/* Wheel */}
+              {/* Wheel – 15 slices (no text on wheel) */}
               <div
                 style={{
                   position: "relative",
@@ -265,7 +261,24 @@ export default function BonusPage() {
                   height: 220,
                   borderRadius: "999px",
                   background:
-                    "conic-gradient(#facc15 0deg 90deg, #22c55e 90deg 180deg, #38bdf8 180deg 270deg, #a855f7 270deg 360deg)",
+                    // 15 slices (24° each), just a repeating color pattern
+                    "conic-gradient(" +
+                    "#facc15 0deg 24deg," +
+                    "#22c55e 24deg 48deg," +
+                    "#38bdf8 48deg 72deg," +
+                    "#a855f7 72deg 96deg," +
+                    "#f97316 96deg 120deg," +
+                    "#facc15 120deg 144deg," +
+                    "#22c55e 144deg 168deg," +
+                    "#38bdf8 168deg 192deg," +
+                    "#a855f7 192deg 216deg," +
+                    "#f97316 216deg 240deg," +
+                    "#facc15 240deg 264deg," +
+                    "#22c55e 264deg 288deg," +
+                    "#38bdf8 288deg 312deg," +
+                    "#a855f7 312deg 336deg," +
+                    "#f97316 336deg 360deg" +
+                    ")",
                   border: "6px solid #111827",
                   transform: `rotate(${wheelRotation}deg)`,
                   transition: spinning
@@ -276,44 +289,30 @@ export default function BonusPage() {
                   overflow: "hidden",
                 }}
               >
-                {/* Center disc */}
+                {/* Center disc with logo */}
                 <div
                   style={{
                     width: 90,
                     height: 90,
                     borderRadius: "999px",
-                    background:
-                      "radial-gradient(circle at 30% 20%, #fefce8, #facc15)",
+                    background: "rgba(0,0,0,0.85)",
                     border: "3px solid rgba(0,0,0,0.6)",
                     display: "grid",
                     placeItems: "center",
                     boxShadow: "0 0 20px rgba(250,204,21,0.6)",
-                    fontSize: 16,
-                    fontWeight: 800,
-                    color: "#1f2937",
-                    textAlign: "center",
-                    padding: 6,
                   }}
                 >
-                  Zeus
-                  <br />
-                  Spin
-                </div>
-
-                {/* Segment labels (purely visual) */}
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    color: "#0f172a",
-                    fontSize: 12,
-                    fontWeight: 700,
-                  }}
-                >
-                  <WheelLabel text="No Win" angle={45} />
-                  <WheelLabel text="+100" angle={135} />
-                  <WheelLabel text="+250" angle={225} />
-                  <WheelLabel text="+500" angle={315} />
+                  <img
+                    src="/images/logo.jpg"
+                    alt="Zeus Lounge"
+                    style={{
+                      width: "80%",
+                      height: "80%",
+                      objectFit: "contain",
+                      filter:
+                        "drop-shadow(0 0 8px rgba(250,204,21,0.75))",
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -425,8 +424,8 @@ export default function BonusPage() {
                 <li>One free spin every 24 hours per player account.</li>
                 <li>Rewards are granted immediately when your spin completes.</li>
                 <li>
-                  Possible outcomes: No win, +100, +250, or +500 Zeus Coins
-                  (subject to change during promos).
+                  Possible outcomes include Zeus Coin wins, match bonuses, or
+                  free play prizes (subject to change during promos).
                 </li>
                 <li>
                   Zeus Coins can be used toward redeems and special promotions
@@ -501,57 +500,71 @@ export default function BonusPage() {
                     Zeus Coins: {coins.toLocaleString()}
                   </p>
 
-                  {tierProgress.next && tierProgress.neededForNext !== null && (
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 12,
-                        color: "#9ca3af",
-                      }}
-                    >
-                      {tierProgress.neededForNext! > 0 ? (
-                        <>
-                          Earn{" "}
-                          <strong>
-                            {tierProgress.neededForNext!.toLocaleString()}
-                          </strong>{" "}
-                          more Zeus Coins to reach{" "}
-                          <strong>{tierProgress.next}</strong>.
-                        </>
-                      ) : (
-                        <>Eligible for next tier upgrade.</>
-                      )}
-                    </p>
-                  )}
+                  {/* Progress text */}
+                  {tierProgress.next &&
+                    tierProgress.neededForNext !== null && (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          color: "#9ca3af",
+                        }}
+                      >
+                        {tierProgress.neededForNext! > 0 ? (
+                          <>
+                            Earn{" "}
+                            <strong>
+                              {tierProgress.neededForNext!.toLocaleString()}
+                            </strong>{" "}
+                            more Zeus Coins to reach{" "}
+                            <strong>{tierProgress.next}</strong>.
+                          </>
+                        ) : (
+                          <>Eligible for next tier upgrade.</>
+                        )}
+                      </p>
+                    )}
 
-                  <ul
-                    style={{
-                      marginTop: 10,
-                      marginBottom: 0,
-                      paddingLeft: 18,
-                      fontSize: 12,
-                      color: "#d1d5db",
-                      display: "grid",
-                      gap: 2,
-                    }}
-                  >
-                    <li>
-                      <strong>Standard:</strong> No fees on deposits, standard
-                      redeem fees apply.
-                    </li>
-                    <li>
-                      <strong>Silver:</strong> We cover 50% of platform redeem
-                      fees.
-                    </li>
-                    <li>
-                      <strong>Gold:</strong> We cover 100% of platform redeem
-                      fees.
-                    </li>
-                    <li>
-                      <strong>Diamond:</strong> 100% of platform redeem fees +
-                      5% match on deposits over $50.
-                    </li>
-                  </ul>
+                  {/* Perks summary */}
+<ul
+  style={{
+    marginTop: 10,
+    marginBottom: 0,
+    paddingLeft: 18,
+    fontSize: 12,
+    color: "#d1d5db",
+    display: "grid",
+    gap: 2,
+  }}
+>
+  <li>
+    <strong>Standard:</strong> 1 free daily Zeus Spin, standard
+    redeem fees apply.
+  </li>
+  <li>
+    <strong>Bronze:</strong> Extra daily spin added (more chances
+    on the wheel) and access to special coin promos.
+  </li>
+  <li>
+    <strong>Silver:</strong> Extra daily spin + we cover{" "}
+    <strong>50% of platform redeem fees</strong>.
+  </li>
+  <li>
+    <strong>Gold:</strong> Extra daily spin + we cover{" "}
+    <strong>100% of platform redeem fees</strong>.
+  </li>
+  <li>
+    <strong>Platinum:</strong> More daily spins +{" "}
+    <strong>100% of platform redeem fees</strong> +{" "}
+    <strong>5% match on deposits over $50</strong>.
+  </li>
+  <li>
+    <strong>Diamond:</strong> Max daily spins +{" "}
+    <strong>100% of platform redeem fees</strong> +{" "}
+    <strong>10% match on deposits over $50</strong> and priority
+    host support.
+  </li>
+</ul>
                 </>
               )}
             </article>
@@ -559,30 +572,5 @@ export default function BonusPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-/** Small helper to position text around the wheel */
-function WheelLabel({ text, angle }: { text: string; angle: number }) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: "50%",
-        top: "50%",
-        transform: `rotate(${angle}deg) translate(0, -42%)`,
-        transformOrigin: "center bottom",
-        textAlign: "center",
-      }}
-    >
-      <span
-        style={{
-          display: "inline-block",
-          transform: `rotate(${-angle}deg)`,
-        }}
-      >
-        {text}
-      </span>
-    </div>
   );
 }
