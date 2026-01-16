@@ -23,42 +23,42 @@ const REWARDS: Reward[] = [
     id: "match25",
     name: "25% Match up to $20",
     description: "Great warm-up bonus for smaller deposits.",
-    cost: 3000,
+    cost: 4000,
     note: "25% match up to $20",
   },
   {
     id: "match50",
     name: "50% Match up to $40",
     description: "Stronger boost for mid-range deposits.",
-    cost: 6000,
+    cost: 8000,
     note: "50% match up to $40",
   },
   {
     id: "match100",
     name: "100% Match up to $40",
     description: "Double your qualifying deposit, once applied by a host.",
-    cost: 10000,
+    cost: 14000,
     note: "100% match up to $40",
   },
   {
     id: "free10",
     name: "$10 Free Play",
     description: "Perfect little Zeus spark for a quick session.",
-    cost: 8000,
+    cost: 12000,
     note: "$10 free play credit",
   },
   {
     id: "free25",
     name: "$25 Free Play",
     description: "More time on the reels, more chances to hit.",
-    cost: 18000,
+    cost: 26000,
     note: "$25 free play credit",
   },
   {
     id: "free50",
     name: "$50 Free Play",
     description: "Extended Olympus session for serious contenders.",
-    cost: 35000,
+    cost: 48000,
     note: "$50 free play credit",
   },
 ];
@@ -488,16 +488,16 @@ export default function RewardsPage() {
                   }}
                 >
                   <li>
-                    $10 – $24.99 → <strong>600</strong> Zeus Coins
+                    $10 – $24.99 → <strong>200</strong> Zeus Coins
                   </li>
                   <li>
-                    $25 – $49.99 → <strong>1,500</strong> Zeus Coins
+                    $25 – $49.99 → <strong>500</strong> Zeus Coins
                   </li>
                   <li>
-                    $50 – $99.99 → <strong>3,500</strong> Zeus Coins
+                    $50 – $99.99 → <strong>1,200</strong> Zeus Coins
                   </li>
                   <li>
-                    $100+ → <strong>8,000</strong> Zeus Coins
+                    $100+ → <strong>2,500</strong> Zeus Coins
                   </li>
                 </ul>
                 <p

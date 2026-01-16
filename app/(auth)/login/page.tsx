@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { Suspense, useState, type FormEvent, type ChangeEvent } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { supabase } from "@/lib/supabaseClient";
 
 type LoginState = {
   email: string;
@@ -13,17 +12,16 @@ type LoginState = {
 
 function LoginInner() {
   const searchParams = useSearchParams();
-  const [form, setForm] = useState<LoginState>({
-    email: "",
-    password: "",
-  });
+  const router = useRouter();
+
+  const [form, setForm] = useState<LoginState>({ email: "", password: "" });
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(searchParams.get("message"));
   const [err, setErr] = useState<string | null>(null);
 
   const onChange =
     (field: keyof LoginState) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: ChangeEvent<HTMLInputElement>) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
@@ -44,11 +42,12 @@ function LoginInner() {
       if (error) {
         setErr(error.message);
       } else if (data.session) {
-        setMsg("Logged in successfully!");
+        router.replace("/profile");
       } else {
         setMsg("Check your email to finish logging in.");
       }
-    } catch {
+    } catch (e) {
+      console.error("Login error:", e);
       setErr("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
@@ -58,7 +57,6 @@ function LoginInner() {
   return (
     <main className="login-page">
       <div className="login-shell">
-        {/* LEFT: form */}
         <section className="login-card" aria-labelledby="login-title">
           <h1 id="login-title" className="login-title">
             LOGIN ⚡
@@ -98,7 +96,6 @@ function LoginInner() {
               />
             </div>
 
-            {/* Forgot password */}
             <div className="row">
               <div />
               <Link
@@ -116,11 +113,7 @@ function LoginInner() {
 
             <div className="row">
               <div className="label" aria-hidden />
-              <button
-                type="submit"
-                disabled={submitting}
-                className="submit-btn"
-              >
+              <button type="submit" disabled={submitting} className="submit-btn">
                 {submitting ? "Logging in…" : "Log in"}
               </button>
             </div>
@@ -130,13 +123,11 @@ function LoginInner() {
           </form>
         </section>
 
-        {/* RIGHT: logo (hidden on mobile) */}
         <aside className="login-aside" aria-hidden>
           <img src="/images/logo.jpg" alt="Zeus Lounge Logo" className="login-logo" />
         </aside>
       </div>
 
-      {/* INLINE CSS */}
       <style jsx>{`
         .login-page {
           min-height: 100dvh;
@@ -261,7 +252,6 @@ function LoginInner() {
   );
 }
 
-/* Wrapper to avoid Vercel Suspense errors */
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>

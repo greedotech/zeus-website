@@ -6,36 +6,80 @@ import AuthButtons from "./AuthButtons";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function Header() {
-  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
+  const [isHost, setIsHost] = useState(false);
 
-  // Watch Supabase auth state so header can react to login/logout
+  async function loadHostFlag(userId: string) {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_host")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Header - loadHostFlag error:", error);
+        setIsHost(false);
+        return;
+      }
+
+      setIsHost(!!data?.is_host);
+    } catch (err) {
+      console.error("Header - loadHostFlag threw:", err);
+      setIsHost(false);
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
 
-    // initial check
-    supabase.auth.getUser().then(
-  (res: import("@supabase/supabase-js").UserResponse) => {
-    if (!mounted) return;
-    const user = res.data?.user ?? null;
-    setLoggedIn(!!user);
-  }
-);
+    const run = async () => {
+      try {
+        // Use getSession (more reliable in your current state than getUser)
+        const { data, error } = await supabase.auth.getSession();
 
-    // subscribe to auth changes
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      (
-        _event: import("@supabase/supabase-js").AuthChangeEvent,
-        session: import("@supabase/supabase-js").Session | null
-      ) => {
         if (!mounted) return;
-        setLoggedIn(!!session?.user);
+
+        if (error) {
+          console.error("Header getSession error:", error);
+          setLoggedIn(false);
+          setIsHost(false);
+          return;
+        }
+
+        const user = data.session?.user ?? null;
+        setLoggedIn(!!user);
+
+        if (user) await loadHostFlag(user.id);
+        else setIsHost(false);
+      } catch (err) {
+        console.error("Header getSession threw:", err);
+        if (mounted) {
+          setLoggedIn(false);
+          setIsHost(false);
+        }
+      }
+    };
+
+    run();
+
+    // Subscribe to auth changes
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (!mounted) return;
+
+        const user = session?.user ?? null;
+        setLoggedIn(!!user);
+
+        if (user) await loadHostFlag(user.id);
+        else setIsHost(false);
       }
     );
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      subscription.subscription.unsubscribe();
     };
   }, []);
 
@@ -47,7 +91,7 @@ export default function Header() {
         zIndex: 1000,
         backdropFilter: "blur(8px)",
         background:
-          "linear-gradient(90deg, rgba(10,10,20,0.55), rgba(10,10,20,0.55))",
+          "linear-gradient(90deg, rgba(10,10,20,0.7), rgba(10,10,20,0.7))",
         borderBottom: "1px solid rgba(255,215,0,0.25)",
       }}
     >
@@ -85,7 +129,13 @@ export default function Header() {
           style={{ display: "flex", alignItems: "center", gap: 12 }}
         >
           {/* Desktop links */}
-          <div className="links" style={{ display: "none", gap: 18 }}>
+          <nav className="links" style={{ display: "none", gap: 18 }}>
+            {isHost && (
+              <Link href="/host" className="nav-link nav-pill">
+                ⚡ Host Console
+              </Link>
+            )}
+
             <Link href="/games" className="nav-link">
               Games
             </Link>
@@ -101,18 +151,15 @@ export default function Header() {
             <Link href="/media" className="nav-link">
               Media
             </Link>
-            {/* Desktop Signup link (optional, AuthButtons also handles auth actions) */}
-            <Link href="/signup" className="nav-link">
-              Signup
-            </Link>
-          </div>
+          </nav>
 
-          {/* Facebook icon link */}
+          {/* Facebook icon */}
           <a
             href="https://www.facebook.com/profile.php?id=100095134567324"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Zeus Lounge on Facebook"
+            className="nav-pill"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -136,13 +183,13 @@ export default function Header() {
             </svg>
           </a>
 
-          {/* Auth buttons (Profile + Login/Signup/Logout) */}
+          {/* Auth buttons */}
           <AuthButtons />
 
           {/* Hamburger */}
           <button
             aria-label="Menu"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => setMenuOpen((v) => !v)}
             style={{
               fontSize: 24,
               lineHeight: 1,
@@ -159,7 +206,7 @@ export default function Header() {
       </div>
 
       {/* Mobile drawer */}
-      {open && (
+      {menuOpen && (
         <div
           style={{
             borderTop: "1px solid rgba(255,215,0,0.25)",
@@ -176,67 +223,58 @@ export default function Header() {
               gap: 10,
             }}
           >
+            {isHost && (
+              <Link
+                href="/host"
+                className="nav-link"
+                onClick={() => setMenuOpen(false)}
+              >
+                ⚡ Host Console
+              </Link>
+            )}
+
             <Link
               href="/games"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               Games
             </Link>
             <Link
               href="/about"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               About Us
             </Link>
             <Link
               href="/contact"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               Contact Us
             </Link>
             <Link
               href="/social"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               Social
             </Link>
             <Link
               href="/media"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               Media
             </Link>
-
-            {/* This changes based on login status */}
-            {loggedIn ? (
-              <Link
-                href="/profile"
-                className="nav-link"
-                onClick={() => setOpen(false)}
-              >
-                Profile
-              </Link>
-            ) : (
-              <Link
-                href="/signup"
-                className="nav-link"
-                onClick={() => setOpen(false)}
-              >
-                Signup
-              </Link>
-            )}
 
             <a
               href="https://www.facebook.com/profile.php?id=100095134567324"
               target="_blank"
               rel="noopener noreferrer"
               className="nav-link"
-              onClick={() => setOpen(false)}
+              onClick={() => setMenuOpen(false)}
             >
               Facebook Page
             </a>
@@ -255,6 +293,9 @@ export default function Header() {
         .nav-link:hover {
           background: rgba(255, 215, 0, 0.12);
           box-shadow: inset 0 0 0 1px rgba(255, 215, 0, 0.35);
+        }
+        .nav-pill {
+          font-weight: 600;
         }
         @media (min-width: 820px) {
           .links {

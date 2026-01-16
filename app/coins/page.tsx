@@ -22,11 +22,12 @@ export default function CoinHistoryPage() {
 
     (async () => {
       try {
-        const { data: userData, error: userErr } =
-          await supabase.auth.getUser();
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
         if (userErr) throw userErr;
+
         const user = userData.user;
         if (!user) {
+          if (!mounted) return;
           setErr("You must be logged in to view your Zeus Coin history.");
           setLoading(false);
           return;
@@ -54,7 +55,7 @@ export default function CoinHistoryPage() {
         setRows(txData || []);
       } catch (e: any) {
         if (!mounted) return;
-        setErr(e.message || "Unable to load coin history.");
+        setErr(e?.message || "Unable to load coin history.");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -112,15 +113,7 @@ export default function CoinHistoryPage() {
           "var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif)",
       }}
     >
-      <div
-        style={{
-          maxWidth: 960,
-          margin: "0 auto",
-          display: "grid",
-          gap: 20,
-        }}
-      >
-        {/* Header */}
+      <div style={{ maxWidth: 960, margin: "0 auto", display: "grid", gap: 20 }}>
         <header>
           <h1
             style={{
@@ -140,7 +133,6 @@ export default function CoinHistoryPage() {
           </p>
         </header>
 
-        {/* Balance card */}
         <section
           style={{
             background: "rgba(0,0,0,0.7)",
@@ -166,30 +158,17 @@ export default function CoinHistoryPage() {
             >
               Current Zeus Coins
             </div>
-            <div
-              style={{
-                fontSize: 28,
-                fontWeight: 800,
-                color: "#fef9c3",
-              }}
-            >
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fef9c3" }}>
               {balance.toLocaleString()}
             </div>
           </div>
-          <p
-            style={{
-              margin: 0,
-              maxWidth: 380,
-              fontSize: 13,
-              color: "#e5e7eb",
-            }}
-          >
+
+          <p style={{ margin: 0, maxWidth: 380, fontSize: 13, color: "#e5e7eb" }}>
             Positive amounts are coins added (deposits, Facebook, promos).
             Negative amounts are coins spent on Zeus Rewards.
           </p>
         </section>
 
-        {/* Transactions list */}
         <section
           style={{
             background: "rgba(15,23,42,0.9)",
@@ -215,18 +194,13 @@ export default function CoinHistoryPage() {
               Facebook interactions, and rewards, they will appear here.
             </p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gap: 8,
-                marginTop: 4,
-              }}
-            >
+            <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
               {rows.map((row) => {
                 const positive = row.amount > 0;
                 const amountText = `${positive ? "+" : ""}${row.amount.toLocaleString()}`;
                 const dateStr = new Date(row.created_at).toLocaleString();
                 const typeLabel = formatType(row.type);
+
                 return (
                   <div
                     key={row.id}
@@ -241,39 +215,18 @@ export default function CoinHistoryPage() {
                       border: "1px solid rgba(55,65,81,0.9)",
                     }}
                   >
-                    {/* Left: description */}
                     <div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: "#e5e7eb",
-                        }}
-                      >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>
                         {typeLabel}
                       </div>
                       {row.note && (
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#9ca3af",
-                          }}
-                        >
-                          {row.note}
-                        </div>
+                        <div style={{ fontSize: 12, color: "#9ca3af" }}>{row.note}</div>
                       )}
-                      <div
-                        style={{
-                          marginTop: 2,
-                          fontSize: 11,
-                          color: "#6b7280",
-                        }}
-                      >
+                      <div style={{ marginTop: 2, fontSize: 11, color: "#6b7280" }}>
                         {dateStr}
                       </div>
                     </div>
 
-                    {/* Right: amount */}
                     <div
                       style={{
                         textAlign: "right",
@@ -290,14 +243,7 @@ export default function CoinHistoryPage() {
                       >
                         {amountText}
                       </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#9ca3af",
-                        }}
-                      >
-                        Zeus Coins
-                      </div>
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>Zeus Coins</div>
                     </div>
                   </div>
                 );
@@ -306,15 +252,7 @@ export default function CoinHistoryPage() {
           )}
         </section>
 
-        {/* Mobile hint */}
-        <p
-          style={{
-            marginTop: 4,
-            fontSize: 12,
-            color: "#9ca3af",
-            textAlign: "center",
-          }}
-        >
+        <p style={{ marginTop: 4, fontSize: 12, color: "#9ca3af", textAlign: "center" }}>
           On mobile, scroll down to see your full Zeus Coin history.
         </p>
       </div>

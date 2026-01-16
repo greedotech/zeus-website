@@ -166,10 +166,10 @@ export default function HostConsolePage() {
   // ----------------------------
   function calcDepositCoins(amountDollars: number): number {
     if (amountDollars < 10) return 0;
-    if (amountDollars < 25) return 600;
-    if (amountDollars < 50) return 1500;
-    if (amountDollars < 100) return 3500;
-    return 8000; // $100+
+    if (amountDollars < 25) return 200;
+    if (amountDollars < 50) return 500;
+    if (amountDollars < 100) return 1200;
+    return 2500; // $100+
   }
 
   function calcFacebookCoins(action: string): number {
@@ -878,8 +878,8 @@ export default function HostConsolePage() {
                         color: "#9ca3af",
                       }}
                     >
-                      Coins rule: $10–24.99 → 600 • $25–49.99 → 1,500 •
-                      $50–99.99 → 3,500 • $100+ → 8,000.
+                      Coins rule: $10–24.99 → 200 • $25–49.99 → 500 •
+                      $50–99.99 → 1,200 • $100+ → 2,500.
                     </p>
                   </div>
                 )}

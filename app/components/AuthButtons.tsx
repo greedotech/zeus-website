@@ -4,103 +4,166 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
+type SimpleUser = {
+  id: string;
+  email?: string;
+};
+
 export default function AuthButtons() {
-  const [user, setUser] = useState<import('@supabase/supabase-js').User | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [user, setUser] = useState<SimpleUser | null>(null);
   const [isHost, setIsHost] = useState(false);
+
+  async function loadHostFlag(userId: string) {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_host")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("AuthButtons loadHostFlag error:", error);
+        setIsHost(false);
+        return;
+      }
+
+      setIsHost(!!data?.is_host);
+    } catch (e) {
+      console.error("AuthButtons loadHostFlag threw:", e);
+      setIsHost(false);
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data?.user) {
+    const syncFromSession = async () => {
+      try {
+        // getSession is safer than getUser for your current setup
+        const { data, error } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        if (error) {
+          console.error("AuthButtons getSession error:", error);
+          setUser(null);
+          setIsHost(false);
+          return;
+        }
+
+        const sessionUser = data.session?.user ?? null;
+
+        if (!sessionUser) {
+          setUser(null);
+          setIsHost(false);
+          return;
+        }
+
+        setUser({ id: sessionUser.id, email: sessionUser.email ?? undefined });
+        await loadHostFlag(sessionUser.id);
+      } catch (e) {
+        console.error("AuthButtons syncFromSession threw:", e);
         if (mounted) {
           setUser(null);
           setIsHost(false);
         }
-        return;
+      } finally {
+        if (mounted) setChecking(false);
       }
+    };
 
-      setUser(data.user);
+    syncFromSession();
 
-      // load profile to check host role
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("is_host")
-        .eq("id", data.user.id)
-        .maybeSingle();
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (!mounted) return;
 
-      if (mounted) {
-        setIsHost(profile?.is_host === true);
+        const sessionUser = session?.user ?? null;
+
+        if (!sessionUser) {
+          setUser(null);
+          setIsHost(false);
+          setChecking(false);
+          return;
+        }
+
+        setUser({ id: sessionUser.id, email: sessionUser.email ?? undefined });
+        await loadHostFlag(sessionUser.id);
+        setChecking(false);
       }
-    })();
+    );
 
     return () => {
       mounted = false;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    window.location.href = "/";
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Logout error:", e);
+    } finally {
+      // force clean UI state after signOut
+      window.location.href = "/";
+    }
+  };
+
+  if (checking) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "#f9fafb", opacity: 0.7, fontSize: 14 }}>
+          Loading…
+        </span>
+      </div>
+    );
   }
 
+  // Not logged in
+  if (!user) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Link href="/login" className="nav-link nav-pill">
+          Login
+        </Link>
+        <Link href="/signup" className="nav-link nav-pill">
+          Signup
+        </Link>
+      </div>
+    );
+  }
+
+  // Logged in
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      {user ? (
-        <>
-          {/* Host link only if is_host = true */}
-          {isHost && (
-            <Link
-              href="/host"
-              style={{
-                color: "#facc15",
-                textDecoration: "none",
-                fontWeight: 700,
-                border: "1px solid rgba(255,215,0,0.35)",
-                padding: "6px 10px",
-                borderRadius: 8,
-              }}
-            >
-              ⚡ Host Console
-            </Link>
-          )}
-
-          <Link
-            href="/profile"
-            style={{
-              color: "#fff",
-              textDecoration: "none",
-              fontWeight: 600,
-            }}
-          >
-            Profile
-          </Link>
-
-          <button
-            onClick={handleLogout}
-            style={{
-              background: "transparent",
-              border: "1px solid rgba(255,215,0,0.35)",
-              padding: "6px 10px",
-              color: "white",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
-            Logout
-          </button>
-        </>
-      ) : (
-        <>
-          <Link href="/login" className="nav-link">
-            Login
-          </Link>
-          <Link href="/signup" className="nav-link">
-            Signup
-          </Link>
-        </>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {isHost && (
+        <Link href="/host" className="nav-link nav-pill">
+          ⚡ Host Console
+        </Link>
       )}
+
+      <Link href="/profile" className="nav-link nav-pill">
+        Profile
+      </Link>
+
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="nav-link nav-pill"
+        style={{
+          border: "none",
+          cursor: "pointer",
+          padding: "8px 14px",
+          fontSize: 14,
+          fontWeight: 600,
+          background: "linear-gradient(90deg, #facc15, #fb923c)",
+          color: "#111827",
+        }}
+      >
+        Logout
+      </button>
     </div>
   );
 }

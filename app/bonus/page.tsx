@@ -14,15 +14,7 @@ type SpinResult = {
   label: string;
   reward: number;
 };
-async function getAccessToken(): Promise<string> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  const token = data.session?.access_token;
-  if (!token) {
-    throw new Error("Not logged in");
-  }
-  return token;
-}
+
 export default function BonusPage() {
   const [profile, setProfile] = useState<ProfileBits | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -41,13 +33,22 @@ export default function BonusPage() {
 
     (async () => {
       try {
-        const { data: userData, error: userErr } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
-        const user = userData.user;
+        const {
+          data: { session },
+          error: sessionErr,
+        } = await supabase.auth.getSession();
+
+        if (sessionErr) {
+          console.error("bonus page – session error:", sessionErr);
+          if (!mounted) return;
+          setProfile(null);
+          return;
+        }
+
+        const user = session?.user;
         if (!user) {
           if (!mounted) return;
           setProfile(null);
-          setLoadingProfile(false);
           return;
         }
 
@@ -64,7 +65,8 @@ export default function BonusPage() {
           id: user.id,
           zeus_coins: data?.zeus_coins ?? 0,
         });
-      } catch {
+      } catch (e) {
+        console.error("bonus page – profile load error:", e);
         if (!mounted) return;
         setProfile(null);
       } finally {
@@ -75,19 +77,18 @@ export default function BonusPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, []); // ✅ do NOT depend on `supabase`
 
   // --- Derived tier info ---
   const coins = profile?.zeus_coins ?? 0;
   const tierProgress = getTierProgress(coins);
   const tierLabel = getTierLabel(tierProgress.current);
 
-    const handleSpin = async () => {
+  const handleSpin = async () => {
     if (spinning) return;
     setError(null);
     setMessage(null);
 
-    // Cooldown already active (from earlier response)
     if (cooldownUntil && cooldownUntil.getTime() > Date.now()) {
       setError(
         `You already spun today. Next spin: ${cooldownUntil.toLocaleString()}`
@@ -97,25 +98,35 @@ export default function BonusPage() {
 
     setSpinning(true);
 
-    // Give the wheel a big spin visually
-    const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 full turns
+    const extraTurns = 5 + Math.floor(Math.random() * 4);
     const finalRotation =
       wheelRotation + extraTurns * 360 + Math.random() * 360;
     setWheelRotation(finalRotation);
 
     try {
-      const token = await getAccessToken(); // 👈 NEW
-      const res = await fetch("/api/bonus/daily", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`, // 👈 NEW
-        },
-      });
+      const {
+        data: { session },
+        error: sessionErr,
+      } = await supabase.auth.getSession();
 
-      const json = await res.json().catch(() => ({}));
+      if (sessionErr) {
+        console.error("daily spin – session error:", sessionErr);
+        setResult(null);
+        setError("Please log in again to spin.");
+        return;
+      }
+
+      if (!session?.user) {
+        setResult(null);
+        setError("Please log in to spin.");
+        return;
+      }
+
+      // ✅ cookies authenticate this route
+      const res = await fetch("/api/bonus/daily", { method: "POST" });
+      const json = await res.json().catch(() => ({} as any));
 
       if (res.status === 429) {
-        // cooldown
         setResult(null);
         setError("You’ve already taken today’s spin.");
         if (json.cooldownEndsAt) {
@@ -123,32 +134,59 @@ export default function BonusPage() {
           setCooldownUntil(d);
           setMessage(`Next spin available at ${d.toLocaleString()}.`);
         }
-      } else if (!res.ok) {
+        return;
+      }
+
+      if (!res.ok) {
         setResult(null);
         setError(json.error || "Failed to record daily spin.");
+        return;
+      }
+
+      const rewardValue = json.value ?? json.reward ?? 0;
+      const rewardType = json.type ?? "none";
+
+      const r: SpinResult = {
+        reward: rewardValue,
+        label: json.label ?? "Spin complete",
+      };
+      setResult(r);
+
+      if (rewardType === "coins" && rewardValue > 0) {
+        setMessage(`Nice! You won ${rewardValue} Zeus Coins.`);
       } else {
-        // success
-        const r: SpinResult = {
-          reward: json.reward ?? 0,
-          label: json.label ?? "Spin complete",
-        };
-        setResult(r);
+        setMessage(`Result: ${r.label}`);
+      }
 
-        if (r.reward > 0) {
-          setMessage(`Nice! You won ${r.reward} Zeus Coins.`);
-        } else {
-          setMessage(`Result: ${r.label}`);
-        }
+      // refresh coins if coin win
+      if (profile && rewardType === "coins" && rewardValue > 0) {
+        try {
+          const { data: refreshed, error: refErr } = await supabase
+            .from("profiles")
+            .select("zeus_coins")
+            .eq("id", profile.id)
+            .maybeSingle();
 
-        if (profile) {
-          // local bump so UI updates immediately
+          if (!refErr && refreshed) {
+            setProfile({
+              id: profile.id,
+              zeus_coins: refreshed.zeus_coins ?? profile.zeus_coins ?? 0,
+            });
+          } else {
+            setProfile({
+              ...profile,
+              zeus_coins: (profile.zeus_coins ?? 0) + rewardValue,
+            });
+          }
+        } catch {
           setProfile({
             ...profile,
-            zeus_coins: (profile.zeus_coins ?? 0) + r.reward,
+            zeus_coins: (profile.zeus_coins ?? 0) + rewardValue,
           });
         }
       }
     } catch (e: any) {
+      console.error("daily spin – client error:", e);
       setResult(null);
       setError(e?.message || "Something went wrong. Please try again.");
     } finally {
@@ -167,15 +205,7 @@ export default function BonusPage() {
           "var(--font-inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif)",
       }}
     >
-      <div
-        style={{
-          maxWidth: 1040,
-          margin: "0 auto",
-          display: "grid",
-          gap: 20,
-        }}
-      >
-        {/* HEADER */}
+      <div style={{ maxWidth: 1040, margin: "0 auto", display: "grid", gap: 20 }}>
         <header style={{ textAlign: "center" }}>
           <h1
             style={{
@@ -194,7 +224,6 @@ export default function BonusPage() {
           </p>
         </header>
 
-        {/* MAIN LAYOUT: Wheel + Rules / Tier */}
         <section
           style={{
             display: "grid",
@@ -202,7 +231,6 @@ export default function BonusPage() {
             gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
           }}
         >
-          {/* LEFT: Wheel + button + result */}
           <div
             style={{
               background: "rgba(15,23,42,0.9)",
@@ -215,17 +243,7 @@ export default function BonusPage() {
               justifyItems: "center",
             }}
           >
-            {/* Wheel wrapper */}
-            <div
-              style={{
-                position: "relative",
-                width: 260,
-                height: 260,
-                display: "grid",
-                placeItems: "center",
-              }}
-            >
-              {/* Glow */}
+            <div style={{ position: "relative", width: 260, height: 260, display: "grid", placeItems: "center" }}>
               <div
                 style={{
                   position: "absolute",
@@ -236,7 +254,6 @@ export default function BonusPage() {
                 }}
               />
 
-              {/* Pointer */}
               <div
                 style={{
                   position: "absolute",
@@ -253,7 +270,6 @@ export default function BonusPage() {
                 }}
               />
 
-              {/* Wheel – 15 slices (no text on wheel) */}
               <div
                 style={{
                   position: "relative",
@@ -261,7 +277,6 @@ export default function BonusPage() {
                   height: 220,
                   borderRadius: "999px",
                   background:
-                    // 15 slices (24° each), just a repeating color pattern
                     "conic-gradient(" +
                     "#facc15 0deg 24deg," +
                     "#22c55e 24deg 48deg," +
@@ -289,7 +304,6 @@ export default function BonusPage() {
                   overflow: "hidden",
                 }}
               >
-                {/* Center disc with logo */}
                 <div
                   style={{
                     width: 90,
@@ -309,15 +323,13 @@ export default function BonusPage() {
                       width: "80%",
                       height: "80%",
                       objectFit: "contain",
-                      filter:
-                        "drop-shadow(0 0 8px rgba(250,204,21,0.75))",
+                      filter: "drop-shadow(0 0 8px rgba(250,204,21,0.75))",
                     }}
                   />
                 </div>
               </div>
             </div>
 
-            {/* Spin button */}
             <button
               type="button"
               onClick={handleSpin}
@@ -335,47 +347,18 @@ export default function BonusPage() {
                 letterSpacing: "0.09em",
                 textTransform: "uppercase",
                 cursor: spinning ? "default" : "pointer",
-                boxShadow: spinning
-                  ? "none"
-                  : "0 12px 25px rgba(248, 250, 252, 0.3)",
+                boxShadow: spinning ? "none" : "0 12px 25px rgba(248, 250, 252, 0.3)",
                 minWidth: 200,
               }}
             >
               {spinning ? "Spinning…" : "Tap to Spin"}
             </button>
 
-            {/* Messages */}
             <div style={{ textAlign: "center", minHeight: 40 }}>
-              {error && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 13,
-                    color: "#fecaca",
-                  }}
-                >
-                  {error}
-                </p>
-              )}
-              {message && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 13,
-                    color: "#bbf7d0",
-                  }}
-                >
-                  {message}
-                </p>
-              )}
+              {error && <p style={{ margin: 0, fontSize: 13, color: "#fecaca" }}>{error}</p>}
+              {message && <p style={{ margin: 0, fontSize: 13, color: "#bbf7d0" }}>{message}</p>}
               {result && !error && (
-                <p
-                  style={{
-                    marginTop: 6,
-                    fontSize: 13,
-                    color: "#e5e7eb",
-                  }}
-                >
+                <p style={{ marginTop: 6, fontSize: 13, color: "#e5e7eb" }}>
                   Result: <strong>{result.label}</strong>{" "}
                   {result.reward > 0 && `(+${result.reward} Zeus Coins)`}
                 </p>
@@ -383,14 +366,7 @@ export default function BonusPage() {
             </div>
           </div>
 
-          {/* RIGHT: Rules + Tier perks */}
-          <div
-            style={{
-              display: "grid",
-              gap: 14,
-            }}
-          >
-            {/* Rules card */}
+          <div style={{ display: "grid", gap: 14 }}>
             <article
               style={{
                 background: "rgba(15,23,42,0.9)",
@@ -423,28 +399,14 @@ export default function BonusPage() {
               >
                 <li>One free spin every 24 hours per player account.</li>
                 <li>Rewards are granted immediately when your spin completes.</li>
-                <li>
-                  Possible outcomes include Zeus Coin wins, match bonuses, or
-                  free play prizes (subject to change during promos).
-                </li>
-                <li>
-                  Zeus Coins can be used toward redeems and special promotions
-                  based on your account tier.
-                </li>
+                <li>Possible outcomes include Zeus Coin wins, match bonuses, or free play prizes.</li>
+                <li>Zeus Coins can be used toward redeems and special promotions based on your account tier.</li>
               </ul>
-              <p
-                style={{
-                  marginTop: 8,
-                  fontSize: 12,
-                  color: "#9ca3af",
-                }}
-              >
-                Abuse, multiple accounts, or bonus misuse may result in removal
-                of free spin access or Zeus Coins at host discretion.
+              <p style={{ marginTop: 8, fontSize: 12, color: "#9ca3af" }}>
+                Abuse, multiple accounts, or bonus misuse may result in removal of free spin access or Zeus Coins.
               </p>
             </article>
 
-            {/* Tier perks card */}
             <article
               style={{
                 background: "rgba(12,20,35,0.95)",
@@ -476,95 +438,48 @@ export default function BonusPage() {
                 </p>
               ) : (
                 <>
-                  <p
-                    style={{
-                      margin: 0,
-                      marginBottom: 4,
-                      fontSize: 13,
-                      color: "#e5e7eb",
-                    }}
-                  >
+                  <p style={{ margin: 0, marginBottom: 4, fontSize: 13, color: "#e5e7eb" }}>
                     Current tier:{" "}
                     <strong style={{ color: "#facc15" }}>
                       {tierProgress.current} — {tierLabel}
                     </strong>
                   </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      marginBottom: 6,
-                      fontSize: 12,
-                      color: "#9ca3af",
-                    }}
-                  >
+                  <p style={{ margin: 0, marginBottom: 6, fontSize: 12, color: "#9ca3af" }}>
                     Zeus Coins: {coins.toLocaleString()}
                   </p>
 
-                  {/* Progress text */}
-                  {tierProgress.next &&
-                    tierProgress.neededForNext !== null && (
-                      <p
-                        style={{
-                          margin: 0,
-                          fontSize: 12,
-                          color: "#9ca3af",
-                        }}
-                      >
-                        {tierProgress.neededForNext! > 0 ? (
-                          <>
-                            Earn{" "}
-                            <strong>
-                              {tierProgress.neededForNext!.toLocaleString()}
-                            </strong>{" "}
-                            more Zeus Coins to reach{" "}
-                            <strong>{tierProgress.next}</strong>.
-                          </>
-                        ) : (
-                          <>Eligible for next tier upgrade.</>
-                        )}
-                      </p>
-                    )}
+                  {tierProgress.next && tierProgress.neededForNext !== null && (
+                    <p style={{ margin: 0, fontSize: 12, color: "#9ca3af" }}>
+                      {tierProgress.neededForNext! > 0 ? (
+                        <>
+                          Earn{" "}
+                          <strong>{tierProgress.neededForNext!.toLocaleString()}</strong>{" "}
+                          more Zeus Coins to reach <strong>{tierProgress.next}</strong>.
+                        </>
+                      ) : (
+                        <>Eligible for next tier upgrade.</>
+                      )}
+                    </p>
+                  )}
 
-                  {/* Perks summary */}
-<ul
-  style={{
-    marginTop: 10,
-    marginBottom: 0,
-    paddingLeft: 18,
-    fontSize: 12,
-    color: "#d1d5db",
-    display: "grid",
-    gap: 2,
-  }}
->
-  <li>
-    <strong>Standard:</strong> 1 free daily Zeus Spin, standard
-    redeem fees apply.
-  </li>
-  <li>
-    <strong>Bronze:</strong> Extra daily spin added (more chances
-    on the wheel) and access to special coin promos.
-  </li>
-  <li>
-    <strong>Silver:</strong> Extra daily spin + we cover{" "}
-    <strong>50% of platform redeem fees</strong>.
-  </li>
-  <li>
-    <strong>Gold:</strong> Extra daily spin + we cover{" "}
-    <strong>100% of platform redeem fees</strong>.
-  </li>
-  <li>
-    <strong>Platinum:</strong> More daily spins +{" "}
-    <strong>100% of platform redeem fees</strong> +{" "}
-    <strong>5% match on deposits over $50</strong>.
-  </li>
-  <li>
-    <strong>Diamond:</strong> Max daily spins +{" "}
-    <strong>100% of platform redeem fees</strong> +{" "}
-    <strong>10% match on deposits over $50</strong> and priority
-    host support.
-  </li>
-</ul>
+                  <ul
+                    style={{
+                      marginTop: 10,
+                      marginBottom: 0,
+                      paddingLeft: 18,
+                      fontSize: 12,
+                      color: "#d1d5db",
+                      display: "grid",
+                      gap: 2,
+                    }}
+                  >
+                    <li><strong>Standard:</strong> 1 free daily Zeus Spin, standard redeem fees apply.</li>
+                    <li><strong>Bronze:</strong> Extra daily spin + access to special coin promos.</li>
+                    <li><strong>Silver:</strong> Extra daily spin + we cover <strong>50% of platform redeem fees</strong>.</li>
+                    <li><strong>Gold:</strong> Extra daily spin + we cover <strong>100% of platform redeem fees</strong>.</li>
+                    <li><strong>Platinum:</strong> More spins + 100% fees + <strong>5% match on deposits over $50</strong>.</li>
+                    <li><strong>Diamond:</strong> Max spins + 100% fees + <strong>10% match on deposits over $50</strong>.</li>
+                  </ul>
                 </>
               )}
             </article>

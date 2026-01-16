@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 
-/** Bold, branched lightning with extra glow (unchanged) */
+/** Bold, branched lightning with extra glow */
 function Lightning({ side }: { side: "left" | "right" }) {
   const sideStyle: React.CSSProperties =
     side === "left" ? { left: "10%" } : { right: "10%" };
@@ -10,24 +10,31 @@ function Lightning({ side }: { side: "left" | "right" }) {
   return (
     <div
       aria-hidden
+      className="lightning-wrap"
       style={{
         position: "absolute",
         top: 250,
         ...sideStyle,
         width: 180,
         height: 320,
-        zIndex: 6, // above columns/logo/text
+        zIndex: 6,
         pointerEvents: "none",
         mixBlendMode: "screen",
         filter: "drop-shadow(0 0 20px rgba(255,255,255,0.8))",
       }}
-      className="lightning-wrap"
     >
-      <svg viewBox="0 0 180 320" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
+      <svg
+        viewBox="0 0 180 320"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ width: "100%", height: "100%" }}
+      >
         <defs>
           <filter id="boltGlow" x="-60%" y="-60%" width="220%" height="220%">
             <feGaussianBlur stdDeviation="6" result="blur" />
-            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
           </filter>
           <radialGradient id="burstGrad" cx="50%" cy="20%" r="60%">
             <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
@@ -39,18 +46,33 @@ function Lightning({ side }: { side: "left" | "right" }) {
         <circle cx="90" cy="44" r="70" fill="url(#burstGrad)" className="bolt-burst" />
         <polyline
           points="90,0 76,55 108,84 62,130 96,162 60,214 92,248 72,286 86,320"
-          stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round"
-          filter="url(#boltGlow)" className={`bolt trunk ${side}`}
+          stroke="#fff"
+          strokeWidth="6"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          filter="url(#boltGlow)"
+          className={`bolt trunk ${side}`}
         />
         <polyline
           points="76,98 44,120 66,146"
-          stroke="#e6eeff" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"
-          filter="url(#boltGlow)" className={`bolt branchA ${side}`}
+          stroke="#e6eeff"
+          strokeWidth="4"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          filter="url(#boltGlow)"
+          className={`bolt branchA ${side}`}
         />
         <polyline
           points="98,176 128,194 112,222"
-          stroke="#e6eeff" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round"
-          filter="url(#boltGlow)" className={`bolt branchB ${side}`}
+          stroke="#e6eeff"
+          strokeWidth="4"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          filter="url(#boltGlow)"
+          className={`bolt branchB ${side}`}
         />
       </svg>
     </div>
@@ -58,7 +80,6 @@ function Lightning({ side }: { side: "left" | "right" }) {
 }
 
 export default function Home() {
-  // Parallax refs (unchanged)
   const mountainsRef = useRef<HTMLImageElement | null>(null);
   const cloudsBackLeftRef = useRef<HTMLImageElement | null>(null);
   const cloudsBackRightRef = useRef<HTMLImageElement | null>(null);
@@ -97,6 +118,7 @@ export default function Home() {
 
   return (
     <main
+      className="olympus-stage"
       style={{
         position: "relative",
         minHeight: "100dvh",
@@ -115,7 +137,6 @@ export default function Home() {
         fontFamily: "'Cinzel Decorative', serif",
         touchAction: "manipulation",
       }}
-      className="olympus-stage"
     >
       {/* Mountains */}
       <img
@@ -146,7 +167,7 @@ export default function Home() {
           right: 0,
           height: 160,
           background:
-            "linear-gradient(to bottom, rgba(10,15,35,0.45), rgba(10,15,35,0.15), rgba(10,15,35,0))",
+            "linear-gradient(to bottom, rgba(10,15,35,0.40), rgba(10,15,35,0.10), rgba(10,15,35,0))",
           zIndex: 2,
           pointerEvents: "none",
         }}
@@ -171,28 +192,115 @@ export default function Home() {
         ⚡ WELCOME TO THE ZEUS LOUNGE ⚡
       </h1>
 
-      {/* Columns + Logo + Clouds */}
+      {/* Stage */}
       <div
+        className="stage-wrap"
         style={{
           position: "absolute",
           top: 340,
           left: "50%",
           transform: "translateX(-50%)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
           width: "92%",
           maxWidth: "1250px",
           zIndex: 3,
-          gap: "2vw",
         }}
       >
-        {/* Soft gold line along columns top */}
+        {/* white band */}
+        <div
+          aria-hidden
+          className="stage-fade"
+          style={{
+            position: "absolute",
+            left: "-6%",
+            right: "-6%",
+            top: 160,
+            height: 560,
+            background:
+              "linear-gradient(to bottom, rgba(255,255,255,0.78), rgba(255,255,255,0))",
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+        />
+
+        {/* ✅ STRETCHABLE SIDE IMAGES (background-panels) */}
+        <div
+          aria-hidden
+          className="statue-panels"
+          style={{
+            position: "absolute",
+            left: "-6%",
+            right: "-6%",
+            top: 95,     // ⬅️ higher (fills the white above)
+            height: 720,  // ⬅️ taller (covers the full white band + extra)
+            zIndex: 2,
+            pointerEvents: "none",
+          }}
+        >
+          {/* LEFT: fills all space left of logo */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              height: "100%",
+              width: "calc(50% - 160px)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: "url(/images/ZeusFL.svg)",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover",
+                backgroundPosition: "right 45% top 0%",
+                opacity: 0.22,
+                filter:
+                  "grayscale(100%) contrast(130%) drop-shadow(0 14px 36px rgba(0,0,0,0.28))",
+                mixBlendMode: "soft-light",
+                transform: "translateY(-80px) scale(1.12)", // ⬅️ move UP + slightly bigger
+                transformOrigin: "right top",
+              }}
+            />
+          </div>
+
+          {/* RIGHT: fills all space right of logo */}
+          <div
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              height: "100%",
+              width: "calc(50% - 160px)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: "url(/images/zeusFR.svg)",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover",
+                backgroundPosition: "left 45% top 0%",
+                opacity: 0.22,
+                filter:
+                  "grayscale(100%) contrast(130%) drop-shadow(0 14px 36px rgba(0,0,0,0.28))",
+                mixBlendMode: "soft-light",
+                transform: "translateY(-80px) scale(1.12)", // ⬅️ move UP + slightly bigger
+                transformOrigin: "left top",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Soft gold line */}
         <div
           aria-hidden
           style={{
             position: "absolute",
-            top: 0,
+            top: 140,
             left: "2%",
             right: "2%",
             height: 2,
@@ -201,203 +309,186 @@ export default function Home() {
             boxShadow: "0 0 10px rgba(255,215,0,0.5)",
             borderRadius: 2,
             zIndex: 5,
-          }}
-        />
-
-        {/* Left statue */}
-        <img
-          src="/images/ZeusFL.svg"
-          alt="Statue watermark left"
-          className="wm-left"
-          style={{
-            position: "absolute",
-            bottom: "60px",
-            left: "calc(50% - 1040px)",
-            width: "860px",
-            opacity: 0.26,
-            zIndex: 3,
-            filter:
-              "grayscale(100%) contrast(135%) drop-shadow(0 8px 26px rgba(0,0,0,0.3))",
-            mixBlendMode: "soft-light",
             pointerEvents: "none",
           }}
         />
 
-        {/* Right statue */}
-        <img
-          src="/images/zeusFR.svg"
-          alt="Statue watermark right"
-          className="wm-right"
-          style={{
-            position: "absolute",
-            bottom: "60px",
-            left: "calc(50% + 160px)",
-            width: "860px",
-            opacity: 0.26,
-            zIndex: 3,
-            filter:
-              "grayscale(100%) contrast(135%) drop-shadow(0 8px 26px rgba(0,0,0,0.3))",
-            mixBlendMode: "soft-light",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* BACK clouds */}
-        <img
-          ref={cloudsBackLeftRef}
-          src="/images/clouds1.png"
-          alt="Cloud left back"
-          style={{
-            position: "absolute",
-            bottom: 40,
-            left: -220,
-            width: 320,
-            opacity: 0.55,
-            zIndex: 2,
-            pointerEvents: "none",
-            willChange: "transform",
-            animation: "driftX 72s linear infinite",
-          }}
-        />
-        <img
-          ref={cloudsBackRightRef}
-          src="/images/clouds2.png"
-          alt="Cloud right back"
-          style={{
-            position: "absolute",
-            bottom: 80,
-            right: -260,
-            width: 360,
-            opacity: 0.55,
-            zIndex: 2,
-            pointerEvents: "none",
-            willChange: "transform",
-            animation: "driftX 84s linear infinite reverse",
-          }}
-        />
-
-        {/* LEFT column */}
-        <img
-          src="/images/column1.svg"
-          alt="Column Left"
-          className="column-img"
-          style={{
-            height: 560,
-            maxHeight: "76vh",
-            zIndex: 4,
-            animation: "shimmer 8s ease-in-out infinite",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* CENTER: lightning + logo + tagline */}
         <div
+          className="stage-inner"
           style={{
-            maxWidth: 620,
-            textAlign: "center",
             position: "relative",
-            zIndex: 5,
-            margin: "0 2vw",
+            zIndex: 3,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "1.2vw",
+            padding: "22px 18px",
           }}
         >
-          <Lightning side="left" />
-          <Lightning side="right" />
-
-          {/* Logo */}
+          {/* BACK clouds */}
           <img
-            src="/images/logo.jpg"
-            alt="Zeus Lounge Logo"
-            className="logo-img"
+            ref={cloudsBackLeftRef}
+            src="/images/clouds1.png"
+            alt="Cloud left back"
+            className="cloud"
             style={{
-              display: "block",
-              margin: "80px auto 10px",
-              width: "40vw",
-              maxWidth: 420,
-              minWidth: 220,
+              position: "absolute",
+              bottom: 40,
+              left: -220,
+              width: 320,
+              opacity: 0.55,
+              zIndex: 2,
               pointerEvents: "none",
-              animation: "divineGlow 6s ease-in-out infinite",
+              willChange: "transform",
+              animation: "driftX 72s linear infinite",
+            }}
+          />
+          <img
+            ref={cloudsBackRightRef}
+            src="/images/clouds2.png"
+            alt="Cloud right back"
+            className="cloud"
+            style={{
+              position: "absolute",
+              bottom: 80,
+              right: -260,
+              width: 360,
+              opacity: 0.55,
+              zIndex: 2,
+              pointerEvents: "none",
+              willChange: "transform",
+              animation: "driftX 84s linear infinite reverse",
             }}
           />
 
-          <div
-            className="welcome-text"
+          {/* LEFT column */}
+          <img
+            src="/images/column1.svg"
+            alt="Column Left"
+            className="column-img"
             style={{
-              display: "inline-block",
-              padding: "14px 18px",
-              marginTop: 6,
-              borderRadius: 10,
-              background:
-                "linear-gradient(180deg, rgba(40,40,40,0.55), rgba(30,30,30,0.45))",
-              border: "1px solid rgba(255,215,0,0.45)",
-              boxShadow:
-                "0 6px 18px rgba(0,0,0,0.35), inset 0 0 12px rgba(255,215,0,0.15)",
-              color: "#EED27A",
-              textShadow:
-                "0 0 10px rgba(0,0,0,0.65), 0 0 14px rgba(255,215,0,0.35)",
-              fontSize: "clamp(0.95rem, 1.2vw + 0.6rem, 1.1rem)",
-              lineHeight: "1.5rem",
-              letterSpacing: "0.3px",
+              height: 560,
+              maxHeight: "76vh",
+              zIndex: 4,
+              animation: "shimmer 8s ease-in-out infinite",
+              pointerEvents: "none",
+              marginRight: "-18px",
+            }}
+          />
+
+          {/* CENTER */}
+          <div
+            className="center-stack"
+            style={{
               maxWidth: 620,
+              textAlign: "center",
+              position: "relative",
+              zIndex: 5,
+              margin: "0 1vw",
             }}
           >
-            ENTER THE REALM OF OLYMPUS. THE GODS ARE WATCHING, LIGHTNING STRIKES THE
-            SKIES, AND FORTUNE AWAITS THOSE BOLD ENOUGH TO PLAY.
+            <Lightning side="left" />
+            <Lightning side="right" />
+
+            <img
+              src="/images/logo.jpg"
+              alt="Zeus Lounge Logo"
+              className="logo-img"
+              style={{
+                display: "block",
+                margin: "80px auto 10px",
+                width: "40vw",
+                maxWidth: 420,
+                minWidth: 220,
+                pointerEvents: "none",
+                position: "relative",
+                zIndex: 5,
+                animation: "divineGlow 6s ease-in-out infinite",
+              }}
+            />
+
+            <div
+              className="welcome-text"
+              style={{
+                display: "inline-block",
+                padding: "14px 18px",
+                marginTop: 6,
+                borderRadius: 10,
+                background:
+                  "linear-gradient(180deg, rgba(40,40,40,0.55), rgba(30,30,30,0.45))",
+                border: "1px solid rgba(255,215,0,0.45)",
+                boxShadow:
+                  "0 6px 18px rgba(0,0,0,0.35), inset 0 0 12px rgba(255,215,0,0.15)",
+                color: "#EED27A",
+                textShadow:
+                  "0 0 10px rgba(0,0,0,0.65), 0 0 14px rgba(255,215,0,0.35)",
+                fontSize: "clamp(0.95rem, 1.2vw + 0.6rem, 1.1rem)",
+                lineHeight: "1.5rem",
+                letterSpacing: "0.3px",
+                maxWidth: 620,
+              }}
+            >
+              ENTER THE REALM OF OLYMPUS. THE GODS ARE WATCHING, LIGHTNING STRIKES THE
+              SKIES, AND FORTUNE AWAITS THOSE BOLD ENOUGH TO PLAY.
+            </div>
           </div>
+
+          {/* RIGHT column */}
+          <img
+            src="/images/column2.svg"
+            alt="Column Right"
+            className="column-img"
+            style={{
+              height: 560,
+              maxHeight: "76vh",
+              zIndex: 4,
+              animation: "shimmer 8s ease-in-out infinite reverse",
+              pointerEvents: "none",
+              marginLeft: "-18px",
+            }}
+          />
+
+          {/* FRONT clouds */}
+          <img
+            ref={cloudsFrontLeftRef}
+            src="/images/clouds1.png"
+            alt="Cloud front left"
+            className="cloud"
+            style={{
+              position: "absolute",
+              bottom: 20,
+              left: -160,
+              width: 300,
+              opacity: 0.7,
+              zIndex: 5,
+              pointerEvents: "none",
+              willChange: "transform",
+              animation: "driftX 80s linear infinite",
+            }}
+          />
+          <img
+            ref={cloudsFrontRightRef}
+            src="/images/clouds2.png"
+            alt="Cloud front right"
+            className="cloud"
+            style={{
+              position: "absolute",
+              bottom: 58,
+              right: -190,
+              width: 320,
+              opacity: 0.7,
+              zIndex: 5,
+              pointerEvents: "none",
+              willChange: "transform",
+              animation: "driftX 74s linear infinite reverse",
+            }}
+          />
         </div>
-
-        {/* RIGHT column */}
-        <img
-          src="/images/column2.svg"
-          alt="Column Right"
-          className="column-img"
-          style={{
-            height: 560,
-            maxHeight: "76vh",
-            zIndex: 4,
-            animation: "shimmer 8s ease-in-out infinite reverse",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* FRONT clouds */}
-        <img
-          ref={cloudsFrontLeftRef}
-          src="/images/clouds1.png"
-          alt="Cloud front left"
-          style={{
-            position: "absolute",
-            bottom: 20,
-            left: -160,
-            width: 300,
-            opacity: 0.7,
-            zIndex: 5,
-            pointerEvents: "none",
-            willChange: "transform",
-            animation: "driftX 80s linear infinite",
-          }}
-        />
-        <img
-          ref={cloudsFrontRightRef}
-          src="/images/clouds2.png"
-          alt="Cloud front right"
-          style={{
-            position: "absolute",
-            bottom: 58,
-            right: -190,
-            width: 320,
-            opacity: 0.7,
-            zIndex: 5,
-            pointerEvents: "none",
-            willChange: "transform",
-            animation: "driftX 74s linear infinite reverse",
-          }}
-        />
       </div>
 
-      {/* Spacer for scroll (reduced so phones don't feel too long) */}
+      {/* Spacer */}
       <div style={{ height: "80vh" }} />
 
-      {/* Keyframes + mobile tweaks */}
       <style jsx global>{`
         @keyframes driftX {
           0% { transform: translateX(0); }
@@ -415,6 +506,7 @@ export default function Home() {
             filter: drop-shadow(0 0 16px rgba(255,255,255,0.7)) drop-shadow(0 0 12px rgba(255,215,0,0.45));
           }
         }
+
         .bolt { opacity: 0; animation: boltFlash 6.5s infinite; }
         .bolt.trunk.left { animation-delay: 0.6s; }
         .bolt.branchA.left { animation-delay: 0.75s; }
@@ -423,6 +515,7 @@ export default function Home() {
         .bolt.branchA.right { animation-delay: 3.35s; }
         .bolt.branchB.right { animation-delay: 3.5s; }
         .bolt-burst { opacity: 0; animation: burstFlash 6.5s infinite; }
+
         @keyframes boltFlash {
           0%, 93%, 100% { opacity: 0; }
           94% { opacity: 0.95; }
@@ -439,52 +532,46 @@ export default function Home() {
           98% { opacity: 0.35; }
         }
 
-        /* ---------- Mobile-first tune-ups ---------- */
+        /* ---------- Mobile: SIMPLE MODE ---------- */
         @media (max-width: 768px) {
-          /* Pull the whole stage up slightly on tablets/phones */
           .olympus-stage { padding-top: 72px !important; }
+          .column-img { display: none !important; }
+          .statue-panels { display: none !important; }
 
-          /* Columns shorter on small screens, keep them aligned */
-          .column-img {
-            height: 44vh !important;
-            max-height: 44vh !important;
+          .stage-wrap {
+            top: 250px !important;
+            width: min(94vw, 560px) !important;
           }
 
-          /* Logo scales gracefully */
+          .stage-fade { display: none !important; }
+
           .logo-img {
-            width: clamp(56vw, 62vw, 72vw) !important;
+            width: clamp(72vw, 78vw, 88vw) !important;
             max-width: 360px !important;
-            margin: 56px auto 8px !important;
+            margin: 18px auto 10px !important;
           }
 
-          /* Welcome text: a little tighter */
           .welcome-text {
             padding: 10px 12px !important;
             line-height: 1.45rem !important;
+            font-size: 0.98rem !important;
           }
 
-          /* Lightning smaller & a tad lower so it doesn't crowd */
           .lightning-wrap {
-            top: 220px !important;
-            width: 130px !important;
-            height: 240px !important;
+            top: 160px !important;
+            width: 120px !important;
+            height: 220px !important;
+            opacity: 0.85 !important;
           }
 
-          /* Statues: scale down & keep aligned with logo base */
-          .wm-left, .wm-right {
-            width: 68vw !important;
-            opacity: 0.22 !important;
-            bottom: 48px !important;
-          }
-          .wm-left { left: calc(50% - 92vw) !important; }
-          .wm-right { left: calc(50% + 18vw) !important; }
+          .cloud { opacity: 0.35 !important; }
         }
 
-        /* Very small phones */
         @media (max-width: 420px) {
-          .column-img { height: 38vh !important; }
-          .logo-img { width: 72vw !important; max-width: 300px !important; }
-          .wm-left, .wm-right { display: none !important; } /* hide statues if too cramped */
+          .cloud { display: none !important; }
+          .lightning-wrap { display: none !important; }
+          .stage-wrap { top: 235px !important; }
+          .logo-img { width: 86vw !important; max-width: 320px !important; }
         }
       `}</style>
     </main>

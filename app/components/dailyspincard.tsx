@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 type SpinResult = {
   label: string;
-  reward: number;
+  value: number;
+  type: "coins" | "match" | "freeplay" | "none";
 };
 
 export default function DailySpinCard() {
@@ -16,37 +17,41 @@ export default function DailySpinCard() {
   const [cooldownEndsAt, setCooldownEndsAt] = useState<string | null>(null);
 
   async function handleSpin() {
+    if (loading) return;
+
     setLoading(true);
     setError(null);
     setMessage(null);
 
     try {
-      // 1) Get current access token from Supabase client
-      const { data: sessionData, error: sessionErr } =
-        await supabase.auth.getSession();
+      // 1) Make sure we have a session
+      const {
+        data: { session },
+        error: sessionErr,
+      } = await supabase.auth.getSession();
 
-      if (sessionErr) throw sessionErr;
+      console.log("daily spin – session:", session, "err:", sessionErr);
 
-      const token = sessionData.session?.access_token;
-      if (!token) {
+      if (sessionErr) {
+        console.error("daily spin - session error:", sessionErr);
         setError("Please log in again to spin.");
-        setLoading(false);
         return;
       }
 
-      // 2) Call the API route with Authorization header
+      if (!session?.user) {
+        setError("Please log in to spin.");
+        return;
+      }
+
+      // 2) Call the API route – cookies handle auth
       const res = await fetch("/api/bonus/daily", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
       });
 
       const json = await res.json().catch(() => ({} as any));
+      console.log("daily spin – api response:", res.status, json);
 
       if (res.status === 429) {
-        // Cooldown
         setCooldownEndsAt(json.cooldownEndsAt || null);
         setMessage("You’ve already spun today. Come back tomorrow.");
         setResult(null);
@@ -57,16 +62,22 @@ export default function DailySpinCard() {
         throw new Error(json.error || "Spin failed.");
       }
 
-      // success
-      setResult({ label: json.label, reward: json.reward });
+      const spin: SpinResult = {
+        label: json.label ?? "Spin complete",
+        value: typeof json.value === "number" ? json.value : 0,
+        type: (json.type as SpinResult["type"]) ?? "none",
+      };
+
+      setResult(spin);
       setCooldownEndsAt(null);
 
-      if (json.reward > 0) {
-        setMessage(`You won ${json.reward} Zeus Coins!`);
+      if (spin.type === "coins" && spin.value > 0) {
+        setMessage(`You won ${spin.value} Zeus Coins!`);
       } else {
-        setMessage(json.label || "No win this time. Try again tomorrow!");
+        setMessage(spin.label || "No win this time. Try again tomorrow!");
       }
     } catch (e: any) {
+      console.error("daily spin - client error:", e);
       setError(e?.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -94,6 +105,7 @@ export default function DailySpinCard() {
       >
         Daily Zeus Spin
       </h2>
+
       <p style={{ margin: 0, fontSize: 14, color: "#e5e7eb" }}>
         Spin once every 24 hours for a chance at extra Zeus Coins.
       </p>
@@ -107,8 +119,7 @@ export default function DailySpinCard() {
           padding: "10px 16px",
           borderRadius: 999,
           border: "none",
-          background:
-            "linear-gradient(90deg, #38bdf8, #6366f1, #a855f7)",
+          background: "linear-gradient(90deg, #38bdf8, #6366f1, #a855f7)",
           color: "#0b1120",
           fontWeight: 700,
           fontSize: 14,
@@ -116,21 +127,19 @@ export default function DailySpinCard() {
           textTransform: "uppercase",
           cursor: loading ? "default" : "pointer",
           width: "fit-content",
+          opacity: loading ? 0.75 : 1,
         }}
       >
         {loading ? "Spinning…" : "Spin now"}
       </button>
 
       {message && (
-        <p style={{ margin: 0, fontSize: 14, color: "#e5e7eb" }}>
-          {message}
-        </p>
+        <p style={{ margin: 0, fontSize: 14, color: "#e5e7eb" }}>{message}</p>
       )}
 
       {cooldownEndsAt && (
         <p style={{ margin: 0, fontSize: 12, color: "#9ca3af" }}>
-          Next spin available after:{" "}
-          {new Date(cooldownEndsAt).toLocaleString()}
+          Next spin available after: {new Date(cooldownEndsAt).toLocaleString()}
         </p>
       )}
 
@@ -141,9 +150,7 @@ export default function DailySpinCard() {
       )}
 
       {error && (
-        <p style={{ margin: 0, fontSize: 13, color: "#fca5a5" }}>
-          {error}
-        </p>
+        <p style={{ margin: 0, fontSize: 13, color: "#fca5a5" }}>{error}</p>
       )}
     </section>
   );
