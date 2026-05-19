@@ -1,5 +1,3 @@
-// app/api/host/get-user/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,10 +18,7 @@ type GetUserBody = {
   inviteCode?: string;
 };
 
-// POST /api/host/get-user
-// Body: { email?: string, username?: string, inviteCode?: string }
 export async function POST(req: Request) {
-  // 🔒 Host-only guard (uses Authorization: Bearer <token> header)
   const { ctx, response } = await requireHost(req);
   if (!ctx) return response!;
 
@@ -49,36 +44,38 @@ export async function POST(req: Request) {
         zeus_coins,
         referred_by,
         invite_code,
+        favorite_game,
         email,
         account_tier,
         lifetime_coins_spent
-      `
+        `
       )
       .limit(20);
 
-    // Apply exactly one filter based on what was sent
     if (inviteCode) {
       query = query.eq("invite_code", inviteCode);
     } else if (username) {
-      // prefix match, case-insensitive
       query = query.ilike("username", `${username}%`);
     } else if (email) {
-      // prefix match on email if you have email on profiles
       query = query.ilike("email", `${email}%`);
     }
 
+    // ✅ Execute and return
     const { data, error } = await query;
 
     if (error) {
-      console.error("get-user query error:", error);
-      return json({ error: "Failed to search for user." }, 500);
+      console.error("get-user error:", error);
+      return json({ error: error.message }, 500);
     }
 
-    return json({
-      users: data ?? [],
-    });
-  } catch (e) {
-    console.error("get-user unexpected error:", e);
-    return json({ error: "Unexpected server error." }, 500);
+    if (!data || data.length === 0) {
+      return json({ error: "No user found." }, 404);
+    }
+
+    return json({ users: data });
+
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return json({ error: "Internal server error." }, 500);
   }
 }

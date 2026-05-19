@@ -5,28 +5,28 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 const REWARDS = {
   match_25: {
-    label: "25% Deposit Match",
-    cost: 4000,
+    label: "25% Match up to $20",
+    cost: 3000,
   },
   match_50: {
-    label: "50% Deposit Match",
-    cost: 8000,
+    label: "50% Match up to $40",
+    cost: 6000,
   },
   match_100: {
-    label: "100% Deposit Match",
-    cost: 15000,
+    label: "100% Match up to $40",
+    cost: 10000,
   },
   freeplay_10: {
     label: "$10 Free Play",
-    cost: 5000,
+    cost: 9000,
+  },
+  freeplay_25: {
+    label: "$25 Free Play",
+    cost: 20000,
   },
   freeplay_50: {
     label: "$50 Free Play",
-    cost: 20000,
-  },
-  freeplay_100: {
-    label: "$100 Free Play",
-    cost: 35000,
+    cost: 36000,
   },
 } as const;
 

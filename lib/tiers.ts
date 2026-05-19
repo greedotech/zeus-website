@@ -1,8 +1,8 @@
 // lib/tiers.ts
 
 // NOTE: "Standard" is the base tier.
-// The main ladder (Option 1) is:
-// Standard → Bronze → Silver → Gold → Platinum → Diamond → Olympus
+// Tier ladder: Standard → Bronze → Silver → Gold → Platinum → Diamond → Olympus
+// Tiers are based on LIFETIME coins earned (never decreases on redemption)
 
 export type Tier =
   | "Standard"
@@ -16,75 +16,68 @@ export type Tier =
 type TierConfig = {
   id: Tier;
   label: string;
-  minCoins: number;        // minimum Zeus Coins (or lifetime coins) to reach this tier
-  extraDailySpins: number; // how many extra daily spins this tier gets
-  description: string;     // short perks summary (for UI)
+  minCoins: number;
+  extraDailySpins: number;
+  description: string;
 };
 
-// 🧱 Option 1 tier ladder (you can tweak numbers later if needed)
 export const TIER_CONFIG: TierConfig[] = [
   {
     id: "Standard",
     label: "Standard",
     minCoins: 0,
-    extraDailySpins: 0,
-    description: "Base tier. No extra perks yet, just standard promos.",
+    extraDailySpins: 1,
+    description: "1 daily spin. Welcome to Zeus Lounge.",
   },
   {
     id: "Bronze",
     label: "Bronze",
-    minCoins: 10_000,
-    extraDailySpins: 1,
-    description: "1 extra daily spin. Standard platform fees.",
+    minCoins: 3_000,
+    extraDailySpins: 2,
+    description: "2 daily spins + access to special coin promos.",
   },
   {
     id: "Silver",
     label: "Silver",
-    minCoins: 50_000,
-    extraDailySpins: 1,
-    description: "50% off platform redeem fees.",
+    minCoins: 8_000,
+    extraDailySpins: 3,
+    description: "3 daily spins + 50% off platform redeem fees.",
   },
   {
     id: "Gold",
     label: "Gold",
-    minCoins: 200_000,
-    extraDailySpins: 1,
-    description: "5% match on qualifying deposits.",
+    minCoins: 20_000,
+    extraDailySpins: 4,
+    description: "4 daily spins + 100% platform redeem fee coverage.",
   },
   {
     id: "Platinum",
     label: "Platinum",
-    minCoins: 500_000,
-    extraDailySpins: 2,
-    description: "10% match on qualifying deposits + reduced fees.",
+    minCoins: 50_000,
+    extraDailySpins: 5,
+    description: "5 daily spins + 100% fees covered + 5% match on deposits over $50.",
   },
   {
     id: "Diamond",
     label: "Diamond",
-    minCoins: 1_000_000,
-    extraDailySpins: 2,
-    description: "100% platform redeem fee coverage on standard redeems.",
+    minCoins: 120_000,
+    extraDailySpins: 6,
+    description: "6 daily spins + 100% fees covered + 10% match on deposits over $50.",
   },
   {
     id: "Olympus",
     label: "Olympus",
-    minCoins: 2_000_000,
-    extraDailySpins: 3,
-    description: "Top VIP tier: max perks, fee coverage, and weekly free play.",
+    minCoins: 300_000,
+    extraDailySpins: 7,
+    description: "7 daily spins + 100% fees + 15% deposit match + monthly free play bonus.",
   },
 ];
 
-// Make sure they stay sorted by minCoins (safety)
-const SORTED_TIERS = [...TIER_CONFIG].sort(
-  (a, b) => a.minCoins - b.minCoins
-);
+const SORTED_TIERS = [...TIER_CONFIG].sort((a, b) => a.minCoins - b.minCoins);
 
-// 🔹 Get the Tier ID for a given coin amount
 export function getTierForCoins(coins: number): Tier {
   if (!Number.isFinite(coins) || coins < 0) coins = 0;
-
   let current: Tier = "Standard";
-
   for (const cfg of SORTED_TIERS) {
     if (coins >= cfg.minCoins) {
       current = cfg.id;
@@ -92,17 +85,14 @@ export function getTierForCoins(coins: number): Tier {
       break;
     }
   }
-
   return current;
 }
 
-// 🔹 Human-readable label (right now label === id, but this keeps it flexible)
 export function getTierLabel(tier: Tier): string {
   const cfg = SORTED_TIERS.find((t) => t.id === tier);
   return cfg?.label ?? tier;
 }
 
-// 🔹 How many extra daily spins a player gets at this coin level
 export function getExtraDailySpinsForCoins(coins: number): number {
   const tier = getTierForCoins(coins);
   return getExtraDailySpinsForTier(tier);
@@ -110,23 +100,21 @@ export function getExtraDailySpinsForCoins(coins: number): number {
 
 export function getExtraDailySpinsForTier(tier: Tier): number {
   const cfg = SORTED_TIERS.find((t) => t.id === tier);
-  return cfg?.extraDailySpins ?? 0;
+  return cfg?.extraDailySpins ?? 1;
 }
 
-// 🔹 Progress helper used by profile / bonus / host console
 export function getTierProgress(coins: number): {
   current: Tier;
   next: Tier | null;
   currentIndex: number;
-  percentToNext: number;     // 0–100
-  neededForNext: number | null; // coins still needed (null if top tier)
+  percentToNext: number;
+  neededForNext: number | null;
   currentMin: number;
   nextMin: number | null;
   description: string;
 } {
   if (!Number.isFinite(coins) || coins < 0) coins = 0;
 
-  // Find current tier index
   let currentIndex = 0;
   for (let i = 0; i < SORTED_TIERS.length; i++) {
     if (coins >= SORTED_TIERS[i].minCoins) {
@@ -140,7 +128,6 @@ export function getTierProgress(coins: number): {
   const nextCfg = SORTED_TIERS[currentIndex + 1] ?? null;
 
   if (!nextCfg) {
-    // Top tier – no "next"
     return {
       current: currentCfg.id,
       next: null,
@@ -155,10 +142,8 @@ export function getTierProgress(coins: number): {
 
   const range = nextCfg.minCoins - currentCfg.minCoins;
   const progress = coins - currentCfg.minCoins;
-  const percentToNext =
-    range <= 0 ? 0 : Math.max(0, Math.min(100, (progress / range) * 100));
-  const neededForNext =
-    coins >= nextCfg.minCoins ? 0 : nextCfg.minCoins - coins;
+  const percentToNext = range <= 0 ? 0 : Math.max(0, Math.min(100, (progress / range) * 100));
+  const neededForNext = coins >= nextCfg.minCoins ? 0 : nextCfg.minCoins - coins;
 
   return {
     current: currentCfg.id,

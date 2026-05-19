@@ -1,16 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
-const IDLE_MINUTES = 120; // ← “a few hours”. Change to what you want.
+const IDLE_MINUTES = 120;
 const IDLE_MS = IDLE_MINUTES * 60 * 1000;
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 export default function IdleLogoutProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -21,7 +16,6 @@ export default function IdleLogoutProvider({ children }: { children: React.React
     lastActivityRef.current = Date.now();
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
-      // only logout if truly idle (tab might be throttled)
       const idleFor = Date.now() - lastActivityRef.current;
       if (idleFor >= IDLE_MS) {
         await supabase.auth.signOut();
@@ -32,10 +26,8 @@ export default function IdleLogoutProvider({ children }: { children: React.React
 
   useEffect(() => {
     resetTimer();
-
     const onActivity = () => resetTimer();
     const onVisibility = () => {
-      // if user returns after a long time, enforce immediately
       if (document.visibilityState === "visible") {
         const idleFor = Date.now() - lastActivityRef.current;
         if (idleFor >= IDLE_MS) {
