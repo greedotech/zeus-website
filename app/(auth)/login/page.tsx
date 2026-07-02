@@ -42,6 +42,7 @@ function LoginInner() {
       if (error) {
         setErr(error.message);
       } else if (data.session) {
+        await new Promise((res) => setTimeout(res, 300));
         router.replace("/profile");
       } else {
         setMsg("Check your email to finish logging in.");
