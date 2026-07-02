@@ -38,9 +38,17 @@ export default function AuthButtons() {
   useEffect(() => {
     let mounted = true;
 
+    // Fallback: if auth hasn't resolved in 3s, default to logged out
+    const timeout = setTimeout(() => {
+      if (mounted && checking) {
+        setChecking(false);
+        setUser(null);
+        setIsHost(false);
+      }
+    }, 3000);
+
     const syncFromSession = async () => {
       try {
-        // getSession is safer than getUser for your current setup
         const { data, error } = await supabase.auth.getSession();
 
         if (!mounted) return;
@@ -69,7 +77,10 @@ export default function AuthButtons() {
           setIsHost(false);
         }
       } finally {
-        if (mounted) setChecking(false);
+        if (mounted) {
+          clearTimeout(timeout);
+          setChecking(false);
+        }
       }
     };
 
@@ -96,6 +107,7 @@ export default function AuthButtons() {
 
     return () => {
       mounted = false;
+      clearTimeout(timeout);
       sub.subscription.unsubscribe();
     };
   }, []);
@@ -106,7 +118,6 @@ export default function AuthButtons() {
     } catch (e) {
       console.error("Logout error:", e);
     } finally {
-      // force clean UI state after signOut
       window.location.href = "/";
     }
   };
@@ -121,7 +132,6 @@ export default function AuthButtons() {
     );
   }
 
-  // Not logged in
   if (!user) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -135,7 +145,6 @@ export default function AuthButtons() {
     );
   }
 
-  // Logged in
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       {isHost && (
