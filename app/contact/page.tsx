@@ -5,12 +5,10 @@ import React from "react";
 
 export default function ContactPage() {
   const openLiveChat = () => {
-    if (typeof window !== "undefined" && (window as any).$crisp) {
-      const $crisp = (window as any).$crisp as any[];
-      $crisp.push(["do", "chat:show"]);
-      $crisp.push(["do", "chat:open"]);
+    if (typeof window !== "undefined" && (window as any).respondio__widget) {
+      (window as any).respondio__widget.show();
+      (window as any).respondio__widget.open();
     } else {
-      // Fallback if Crisp hasn't loaded yet
       alert("Opening chat… If the widget doesn't appear, please refresh the page.");
     }
   };
@@ -78,7 +76,6 @@ export default function ContactPage() {
             marginBottom: "0.75rem",
           }}
         >
-          {/* Facebook page/chat link */}
           <a
             href="https://www.facebook.com/profile.php?id=100095134567324"
             target="_blank"
@@ -99,7 +96,6 @@ export default function ContactPage() {
             Message us on Facebook
           </a>
 
-          {/* Crisp chat launcher */}
           <button
             onClick={openLiveChat}
             className="contact-button"
@@ -129,41 +125,33 @@ export default function ContactPage() {
         </p>
       </section>
 
-      {/* Mobile tweaks */}
       <style jsx>{`
         @media (max-width: 768px) {
           .contact-shell {
             padding: 1.5rem 1.25rem;
           }
-
           .contact-title {
             font-size: 1.8rem;
           }
-
           .contact-text {
             font-size: 1.05rem;
           }
-
           .contact-buttons {
             flex-direction: column;
             align-items: stretch;
           }
-
           .contact-button {
             width: 100%;
             min-width: 0;
           }
-
           .contact-page {
             padding: 1.5rem 1rem;
           }
         }
-
         @media (max-width: 400px) {
           .contact-title {
             font-size: 1.6rem;
           }
-
           .contact-text {
             font-size: 0.98rem;
           }
