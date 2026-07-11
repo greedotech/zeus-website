@@ -1,7 +1,6 @@
 // app/api/bonus/daily/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 
 type SpinReward = {
   label: string;
@@ -19,7 +18,7 @@ const REWARDS: SpinReward[] = [
 const COOLDOWN_HOURS = 24;
 
 export async function POST(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = createSupabaseServerClient();
 
   // 1) Auth – normal player, NOT host-only
   const { data: auth, error: authErr } = await supabase.auth.getUser();

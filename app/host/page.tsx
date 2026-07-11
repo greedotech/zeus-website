@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getTierProgress, getTierLabel } from "@/lib/tiers";
+import MissionHostPanel from "@/app/components/MissionHostPanel";
 
 type HostProfileRow = {
   is_host: boolean | null;
@@ -533,6 +534,12 @@ export default function HostConsolePage() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* 5. DAILY MISSIONS */}
+        <section style={{ borderRadius: 16, background: "rgba(15,23,42,0.9)", border: "1px solid rgba(148,163,184,0.6)", padding: "14px 16px" }}>
+          <h2 style={{ margin: "0 0 12px", fontSize: 16, fontFamily: "var(--font-cinzel), serif" }}>5. Daily Missions</h2>
+          <MissionHostPanel />
         </section>
 
       </div>

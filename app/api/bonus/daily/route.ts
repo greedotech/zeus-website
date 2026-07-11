@@ -1,7 +1,6 @@
 // app/api/bonus/daily/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { getTierForCoins, getExtraDailySpinsForTier } from "@/lib/tiers";
 
@@ -46,7 +45,7 @@ async function getUserIdFromRequest(req: NextRequest): Promise<string | null> {
       if (!error && data.user?.id) return data.user.id;
     }
   }
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = createSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user?.id) return null;
   return data.user.id;

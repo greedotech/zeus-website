@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import DailyMissionsPanel from "@/app/components/DailyMissionsPanel";
 
 type ProfileRow = {
   id: string;
@@ -338,6 +339,9 @@ export default function ProfilePage() {
               <KV label="Referred By" value={profile?.referred_by ?? "—"} mono />
             </div>
           </div>
+
+          {/* Daily Missions */}
+          <DailyMissionsPanel />
         </section>
       </div>
     </main>
