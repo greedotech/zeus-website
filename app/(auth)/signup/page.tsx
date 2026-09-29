@@ -1,14 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
-import ReCAPTCHA from "react-google-recaptcha";
+import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function SignupPage() {
   const router = useRouter();
-  const captchaRef = useRef<ReCAPTCHA>(null);
+  const captchaRef = useRef<HCaptcha>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -26,6 +27,11 @@ export default function SignupPage() {
     (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const resetCaptcha = () => {
+    captchaRef.current?.resetCaptcha();
+    setCaptchaToken(null);
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +62,7 @@ export default function SignupPage() {
       return;
     }
 
-    const token = captchaRef.current?.getValue();
+    const token = captchaToken;
     if (!token) {
       setErr("Please complete the CAPTCHA first.");
       return;
@@ -64,23 +70,11 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      const verifyRes = await fetch("/api/recaptcha", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      const verifyJson = await verifyRes.json();
-      if (!verifyRes.ok || !verifyJson.success) {
-        setErr("CAPTCHA verification failed. Please try again.");
-        captchaRef.current?.reset();
-        setSubmitting(false);
-        return;
-      }
-
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
         options: {
+          captchaToken: token,
           data: {
             first_name: form.first_name,
             last_name: form.last_name,
@@ -92,7 +86,6 @@ export default function SignupPage() {
 
       if (error) {
         setErr(error.message);
-        captchaRef.current?.reset();
         setSubmitting(false);
         return;
       }
@@ -119,8 +112,8 @@ export default function SignupPage() {
       }
     } catch {
       setErr("Something went wrong. Please try again.");
-      captchaRef.current?.reset();
     } finally {
+      resetCaptcha(); // hCaptcha tokens are single-use
       setSubmitting(false);
     }
   };
@@ -163,7 +156,7 @@ export default function SignupPage() {
             <div className="row">
               <div className="label" aria-hidden />
               <div className="captcha-wrap">
-                <ReCAPTCHA ref={captchaRef} sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!} theme="dark" />
+                <HCaptcha ref={captchaRef} sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY!} theme="dark" onVerify={(t) => setCaptchaToken(t)} onExpire={() => setCaptchaToken(null)} />
               </div>
             </div>
             <div className="row">

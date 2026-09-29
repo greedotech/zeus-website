@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useState, type FormEvent, type ChangeEvent } from "react";
+import { Suspense, useRef, useState, type FormEvent, type ChangeEvent } from "react";
+import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -18,6 +19,13 @@ function LoginInner() {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(searchParams.get("message"));
   const [err, setErr] = useState<string | null>(null);
+  const captchaRef = useRef<HCaptcha>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
+  const resetCaptcha = () => {
+    captchaRef.current?.resetCaptcha();
+    setCaptchaToken(null);
+  };
 
   const onChange =
     (field: keyof LoginState) =>
@@ -31,12 +39,19 @@ function LoginInner() {
 
     setErr(null);
     setMsg(null);
+
+    if (!captchaToken) {
+      setErr("Please complete the CAPTCHA first.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: form.email,
         password: form.password,
+        options: { captchaToken },
       });
 
       if (error) {
@@ -50,6 +65,7 @@ function LoginInner() {
       console.error("Login error:", e);
       setErr("Something went wrong. Please try again.");
     } finally {
+      resetCaptcha(); // hCaptcha tokens are single-use
       setSubmitting(false);
     }
   }
@@ -109,6 +125,13 @@ function LoginInner() {
               >
                 Forgot your password?
               </Link>
+            </div>
+
+            <div className="row">
+              <div className="label" aria-hidden />
+              <div className="captcha-wrap">
+                <HCaptcha ref={captchaRef} sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY!} theme="dark" onVerify={(t) => setCaptchaToken(t)} onExpire={() => setCaptchaToken(null)} />
+              </div>
             </div>
 
             <div className="row">
