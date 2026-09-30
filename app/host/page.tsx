@@ -334,6 +334,9 @@ export default function HostConsolePage() {
           <p style={{ margin: 0, color: "#9ca3af", fontSize: 14 }}>
             Search a player, apply Zeus Coins based on deposits or Facebook activity, and review their recent history.
           </p>
+          <a href="/host/import" style={{ display: "inline-block", marginTop: 10, padding: "8px 14px", borderRadius: 10, background: "#facc15", color: "#000", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>
+            Upload daily game report →
+          </a>
         </header>
 
         {/* 1. SEARCH */}
