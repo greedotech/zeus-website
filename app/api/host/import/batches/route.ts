@@ -43,21 +43,22 @@ export async function GET(req: Request) {
   const { data, error } = await supabaseAdmin
     .from("platform_import_batches")
     .select(
-      "id, platform, business_date, period_start, period_end, is_complete, account_count, total_in, total_out, gross_net, source_file, uploaded_at, uploader:profiles!platform_import_batches_uploaded_by_fkey(username, first_name)"
+      "id, platform, kind, business_date, period_start, period_end, is_complete, account_count, total_in, total_out, gross_net, new_rows, skipped_rows, source_file, uploaded_at, uploader:profiles!platform_import_batches_uploaded_by_fkey(username, first_name)"
     )
     .gte("business_date", since)
     .order("uploaded_at", { ascending: false })
     .limit(500);
   if (error) return json({ error: error.message }, 500);
 
-  // Latest upload per platform + day
+  // Latest daily-report upload per platform + day (transaction uploads are listed separately:
+  // a day with no deposits is normal for them, so they aren't checked for missing days)
   const latest = new Map<string, any>();
-  for (const b of data || []) {
+  for (const b of (data || []).filter((x: any) => x.kind !== "transactions")) {
     const k = `${b.platform}|${b.business_date}`;
     if (!latest.has(k)) latest.set(k, b);
   }
 
-  const platforms = Array.from(new Set((data || []).map((b) => b.platform)));
+  const platforms = Array.from(new Set(Array.from(latest.values()).map((b) => b.platform)));
   const issues: { platform: string; business_date: string; problem: "missing" | "partial" }[] = [];
   for (const p of platforms) {
     const days = Array.from(latest.values()).filter((b) => b.platform === p).map((b) => b.business_date).sort();
@@ -73,6 +74,7 @@ export async function GET(req: Request) {
   return json({
     today: now.date,
     days: Array.from(latest.values()).sort((a, b) => (a.business_date < b.business_date ? 1 : -1)),
+    transactionUploads: (data || []).filter((x: any) => x.kind === "transactions").slice(0, 20),
     uploads: data || [],
     issues,
   });

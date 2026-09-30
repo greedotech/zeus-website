@@ -109,7 +109,13 @@ export function parseReport(fileName: string, content: string): ParsedReport {
       break;
     }
   }
-  if (headerIdx < 0) throw new Error('This doesn\'t look like the daily report: no "Account" header row found.');
+  if (headerIdx < 0) {
+    const first = splitCsvLine(lines.find((l) => l.trim()) || "")[0]?.replace(/^\uFEFF/, "").toLowerCase();
+    if (first === "datetime") {
+      throw new Error('This is the by-date summary (one row per date). In the game panel, switch the report to the per-player view — the right file starts with "Account, Name, Total IN".');
+    }
+    throw new Error('This doesn\'t look like the daily report: no "Account" header row found.');
+  }
   if (!cols.includes("total_in")) throw new Error('The report is missing the "Total IN" column.');
 
   const byAccount = new Map<string, ImportRow>();

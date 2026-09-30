@@ -31,6 +31,20 @@ type DayRow = {
   uploader?: { username: string | null; first_name: string | null } | null;
 };
 
+type TxnUpload = {
+  id: string;
+  platform: string;
+  period_start: string;
+  period_end: string;
+  account_count: number;
+  total_in: number;
+  total_out: number;
+  new_rows: number | null;
+  skipped_rows: number | null;
+  uploaded_at: string;
+  uploader?: { username: string | null; first_name: string | null } | null;
+};
+
 type Issue = { platform: string; business_date: string; problem: "missing" | "partial" };
 
 type AccountRow = {
@@ -65,6 +79,16 @@ async function api(path: string, init?: RequestInit) {
   if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
   return body;
 }
+
+async function fileToBase64(f: File): Promise<string> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+const shortTime = (ts: string) =>
+  new Date(ts.replace(" ", "T")).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 const money = (n: number | string | null | undefined) =>
   (Number(n) || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -170,6 +194,7 @@ export default function HostImportPage() {
 
   const [days, setDays] = useState<DayRow[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [txnUploads, setTxnUploads] = useState<TxnUpload[]>([]);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [showLinked, setShowLinked] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -200,6 +225,7 @@ export default function HostImportPage() {
       const [b, a] = await Promise.all([api("/api/host/import/batches"), api("/api/host/import/accounts")]);
       setDays(b.days || []);
       setIssues(b.issues || []);
+      setTxnUploads(b.transactionUploads || []);
       setAccounts(a.accounts || []);
     } catch (e: any) { setLoadErr(e.message); }
   }, []);
@@ -214,18 +240,21 @@ export default function HostImportPage() {
     const sorted = [...files].sort((x, y) => x.name.localeCompare(y.name));
     for (const f of sorted) {
       try {
-        const content = await f.text();
-        const r = await api("/api/host/import", { method: "POST", body: JSON.stringify({ filename: f.name, content }) });
+        const isExcel = /\.xlsx$/i.test(f.name);
+        const payload = isExcel
+          ? { filename: f.name, base64: await fileToBase64(f) }
+          : { filename: f.name, content: await f.text() };
+        const r = await api("/api/host/import", { method: "POST", body: JSON.stringify(payload) });
         const s = r.summary;
-        out.push({
-          file: f.name,
-          ok: true,
-          message:
-            `${prettyDate(s.business_date)} · ${r.platform} · ${s.accounts} players · in ${money(s.total_in)} · out ${money(s.total_out)} · net ${money(s.gross_net)}` +
-            (s.is_complete ? " · full day ✓" : ` · PARTIAL (through ${r.periodEnd.slice(11, 16)}) — upload the full day later`),
-          warnings: r.warnings,
-          unlinked: r.unlinkedInFile,
-        });
+        const message =
+          r.kind === "transactions"
+            ? `${r.platform} · ${s.new_rows} new deposit record(s)` +
+              (s.skipped_rows ? `, ${s.skipped_rows} already uploaded (skipped)` : "") +
+              ` · ${shortTime(s.first)} → ${shortTime(s.last)} · in ${money(s.total_in)}` +
+              (Number(s.total_out) ? ` · out ${money(s.total_out)}` : "")
+            : `${prettyDate(s.business_date)} · ${r.platform} · ${s.accounts} players · in ${money(s.total_in)} · out ${money(s.total_out)} · net ${money(s.gross_net)}` +
+              (s.is_complete ? " · full day ✓" : ` · PARTIAL (through ${r.periodEnd.slice(11, 16)}) — upload the full day later`);
+        out.push({ file: f.name, ok: true, message, warnings: r.warnings, unlinked: r.unlinkedInFile });
       } catch (e: any) {
         out.push({ file: f.name, ok: false, message: e.message });
       }
@@ -256,15 +285,21 @@ export default function HostImportPage() {
         <section style={S.card}>
           <h2 style={S.h2}>1. Upload yesterday&apos;s report</h2>
           <ol style={{ margin: "0 0 14px", paddingLeft: 18, lineHeight: 1.7, fontSize: 14 }}>
-            <li>In the game panel, open the report and set the dates to <b>yesterday 5:00 AM → today 4:59 AM</b>.</li>
-            <li>Export it. <b>Don&apos;t rename the file</b> — the date is read from the file name.</li>
-            <li>Choose the file below and press Upload. Uploading the same day again replaces it (no duplicates).</li>
+            <li>
+              <b>zeusgames panel (CSV):</b> open the per-player report (starts with &quot;Account&quot;), set <b>yesterday 5:00 AM → today 4:59 AM</b>, export.{" "}
+              <b>Don&apos;t rename the file</b> — the date is read from the file name. Re-uploading a day replaces it.
+            </li>
+            <li>
+              <b>Zeusgames2 panel — Dragon Fury + SLOTMANIA (Excel):</b> Record Enquiry → top-up records, both games ticked, press <b>Yesterday</b>, export.
+              Each deposit has an order number, so overlapping or repeated uploads are skipped automatically.
+            </li>
+            <li>Choose one or more files below and press Upload.</li>
           </ol>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <input
               id="report-file"
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
               style={{ color: "#e5e7eb" }}
@@ -337,6 +372,34 @@ export default function HostImportPage() {
             </div>
           )}
         </section>
+
+        {txnUploads.length > 0 && (
+          <section style={S.card}>
+            <h2 style={S.h2}>Deposit record uploads (Excel)</h2>
+            <div style={{ overflowX: "auto" }}>
+              <table style={S.table}>
+                <thead>
+                  <tr>{["Store", "Covers", "Players", "In", "New / skipped", "Uploaded"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {txnUploads.map((u) => (
+                    <tr key={u.id}>
+                      <td style={S.td}>{u.platform}</td>
+                      <td style={S.td}>{shortTime(u.period_start)} → {shortTime(u.period_end)}</td>
+                      <td style={S.td}>{u.account_count}</td>
+                      <td style={S.td}>{money(u.total_in)}</td>
+                      <td style={S.td}>{u.new_rows ?? "—"} / {u.skipped_rows ?? "—"}</td>
+                      <td style={{ ...S.td, ...S.muted }}>
+                        {new Date(u.uploaded_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        {u.uploader?.username ? ` · ${u.uploader.username}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* 3. Link accounts */}
         <section style={S.card}>

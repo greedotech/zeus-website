@@ -14,7 +14,8 @@
     "@supabase/supabase-js": "^2.76.1",
     "next": "14.2.15",
     "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "react-dom": "18.2.0",
+    "read-excel-file": "^5.8.8"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -33,7 +33,27 @@ export async function GET(req: Request) {
     .limit(100000);
   if (tErr) return json({ error: tErr.message }, 500);
 
+  const { data: txns, error: xErr } = await supabaseAdmin
+    .from("platform_transactions")
+    .select("platform, account_number, business_date, direction, amount, status")
+    .limit(200000);
+  if (xErr) return json({ error: xErr.message }, 500);
+
   const agg = new Map<string, { total_in: number; total_out: number; days: number; last_seen: string | null }>();
+  const txnDays = new Map<string, Set<string>>();
+  for (const t of txns || []) {
+    if (t.status && !/success/i.test(t.status)) continue;
+    const k = `${t.platform}|${t.account_number}`;
+    const a = agg.get(k) || { total_in: 0, total_out: 0, days: 0, last_seen: null };
+    if (t.direction === "out") a.total_out += Number(t.amount) || 0;
+    else a.total_in += Number(t.amount) || 0;
+    const ds = txnDays.get(k) || new Set<string>();
+    ds.add(t.business_date);
+    txnDays.set(k, ds);
+    a.days = ds.size;
+    if (!a.last_seen || t.business_date > a.last_seen) a.last_seen = t.business_date;
+    agg.set(k, a);
+  }
   for (const t of totals || []) {
     const k = `${t.platform}|${t.account_number}`;
     const a = agg.get(k) || { total_in: 0, total_out: 0, days: 0, last_seen: null };

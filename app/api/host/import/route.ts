@@ -1,12 +1,15 @@
 // app/api/host/import/route.ts
-// POST { filename, content } -> parse the game panel daily report and replace that business day.
+// POST { filename, content }  -> CSV daily report (per player, one business day) -> replaces that day
+// POST { filename, base64 }   -> Excel top-up records (per transaction)          -> adds new orders, skips known ones
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import readXlsxFile from "read-excel-file/node";
 import supabaseAdmin from "@/lib/supabaseAdmin";
 import { requireHost } from "../_utils";
 import { parseReport } from "@/lib/platformImport";
+import { parseTransactions, looksLikeTransactions } from "@/lib/platformTransactions";
 
 function json(body: any, status: number = 200) {
   return new Response(JSON.stringify(body), {
@@ -15,13 +18,78 @@ function json(body: any, status: number = 200) {
   });
 }
 
+async function unlinkedAmong(platform: string, accounts: string[]) {
+  if (!accounts.length) return [];
+  const { data } = await supabaseAdmin
+    .from("player_accounts")
+    .select("account_number")
+    .eq("platform", platform)
+    .is("member_id", null)
+    .in("account_number", Array.from(new Set(accounts)));
+  return (data || []).map((u) => u.account_number);
+}
+
+async function importExcel(filename: string, base64: string, userId: string) {
+  let table: unknown[][];
+  try {
+    table = (await readXlsxFile(Buffer.from(base64, "base64"))) as unknown[][];
+  } catch {
+    return json({ error: "Couldn't open this Excel file. Make sure it's an .xlsx export from the game panel." }, 400);
+  }
+
+  if (!table.some((r) => looksLikeTransactions(r))) {
+    const head = (table[0] || []).map((x) => String(x ?? "").toLowerCase());
+    if (head.includes("user name") && (head.includes("win") || head.includes("profit"))) {
+      return json({
+        error: 'This is the "Player Total Report" (profit only, no deposits or dates). Export the top-up records from Record Enquiry instead.',
+      }, 400);
+    }
+    return json({ error: "This Excel file isn't a format the upload page knows yet. Send it to Claude to add support." }, 400);
+  }
+
+  let parsed;
+  try {
+    parsed = parseTransactions(table);
+  } catch (e: any) {
+    return json({ error: e?.message || "Couldn't read the file." }, 400);
+  }
+  if (!parsed.rows.length) return json({ error: "The file has no deposit rows, so nothing was changed." }, 400);
+
+  const { data, error } = await supabaseAdmin.rpc("import_platform_transactions", {
+    p_platform: parsed.platform,
+    p_source_file: filename,
+    p_uploaded_by: userId,
+    p_rows: parsed.rows,
+  });
+  if (error) {
+    console.error("import_platform_transactions error:", error);
+    return json({ error: error.message }, 400);
+  }
+
+  return json({
+    success: true,
+    kind: "transactions",
+    platform: parsed.platform,
+    summary: data,
+    unlinkedInFile: await unlinkedAmong(parsed.platform, parsed.rows.map((r) => r.account_number)),
+    warnings: parsed.warnings,
+  });
+}
+
 export async function POST(req: Request) {
   const { ctx, response } = await requireHost(req);
   if (!ctx) return response!;
 
   try {
-    const { filename, content } = (await req.json()) as { filename?: string; content?: string };
-    if (!filename || typeof content !== "string") return json({ error: "Missing file." }, 400);
+    const { filename, content, base64 } = (await req.json()) as { filename?: string; content?: string; base64?: string };
+    if (!filename) return json({ error: "Missing file." }, 400);
+
+    if (typeof base64 === "string") {
+      if (base64.length > 3_000_000) return json({ error: "File is too large (max about 2 MB)." }, 400);
+      return await importExcel(filename, base64, ctx.userId);
+    }
+
+    if (typeof content !== "string") return json({ error: "Missing file." }, 400);
     if (content.length > 2_000_000) return json({ error: "File is too large (max 2 MB)." }, 400);
 
     let parsed;
@@ -53,21 +121,14 @@ export async function POST(req: Request) {
       return json({ error: error.message }, 400);
     }
 
-    // Which accounts in this file still need linking to a member?
-    const { data: unlinked } = await supabaseAdmin
-      .from("player_accounts")
-      .select("account_number")
-      .eq("platform", parsed.platform)
-      .is("member_id", null)
-      .in("account_number", parsed.rows.map((r) => r.account_number));
-
     return json({
       success: true,
+      kind: "daily_totals",
       platform: parsed.platform,
       periodStart: parsed.periodStart,
       periodEnd: parsed.periodEnd,
       summary: data,
-      unlinkedInFile: (unlinked || []).map((u) => u.account_number),
+      unlinkedInFile: await unlinkedAmong(parsed.platform, parsed.rows.map((r) => r.account_number)),
       warnings: parsed.warnings,
     });
   } catch (e) {
