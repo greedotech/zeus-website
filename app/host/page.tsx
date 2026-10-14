@@ -337,6 +337,9 @@ export default function HostConsolePage() {
           <a href="/host/import" style={{ display: "inline-block", marginTop: 10, padding: "8px 14px", borderRadius: 10, background: "#facc15", color: "#000", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>
             Upload daily game report →
           </a>
+          <a href="/host/payments" style={{ display: "inline-block", marginTop: 10, marginLeft: 10, padding: "8px 14px", borderRadius: 10, border: "1px solid #facc15", color: "#fde68a", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>
+            Payments &amp; reconciliation →
+          </a>
         </header>
 
         {/* 1. SEARCH */}
