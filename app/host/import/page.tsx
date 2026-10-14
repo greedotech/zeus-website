@@ -20,6 +20,7 @@ type UploadResult = {
 type DayRow = {
   id: string;
   platform: string;
+  game?: string | null;
   business_date: string;
   period_end: string;
   is_complete: boolean;
@@ -34,6 +35,7 @@ type DayRow = {
 type TxnUpload = {
   id: string;
   platform: string;
+  game: string | null;
   period_start: string;
   period_end: string;
   account_count: number;
@@ -89,6 +91,9 @@ async function fileToBase64(f: File): Promise<string> {
 
 const shortTime = (ts: string) =>
   new Date(ts.replace(" ", "T")).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+type Game = { code: string; name: string };
+type Panel = { platform: string; default_game: string | null };
 
 const money = (n: number | string | null | undefined) =>
   (Number(n) || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -190,6 +195,12 @@ export default function HostImportPage() {
 
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [game, setGame] = useState<string>("");
+  const [remember, setRemember] = useState(false);
+  const [games, setGames] = useState<Game[]>([]);
+  const [panels, setPanels] = useState<Panel[]>([]);
+  const gameName = (code?: string | null) =>
+    !code || code === "both" ? "Several games" : games.find((g) => g.code === code)?.name || code;
   const [results, setResults] = useState<UploadResult[]>([]);
 
   const [days, setDays] = useState<DayRow[]>([]);
@@ -222,7 +233,13 @@ export default function HostImportPage() {
   const refresh = useCallback(async () => {
     setLoadErr(null);
     try {
-      const [b, a] = await Promise.all([api("/api/host/import/batches"), api("/api/host/import/accounts")]);
+      const [b, a, g] = await Promise.all([
+        api("/api/host/import/batches"),
+        api("/api/host/import/accounts"),
+        api("/api/host/import/games"),
+      ]);
+      setGames(g.games || []);
+      setPanels(g.panels || []);
       setDays(b.days || []);
       setIssues(b.issues || []);
       setTxnUploads(b.transactionUploads || []);
@@ -242,19 +259,24 @@ export default function HostImportPage() {
       try {
         const isExcel = /\.xlsx$/i.test(f.name);
         const payload = isExcel
-          ? { filename: f.name, base64: await fileToBase64(f) }
-          : { filename: f.name, content: await f.text() };
+          ? { filename: f.name, base64: await fileToBase64(f), game, remember }
+          : { filename: f.name, content: await f.text(), game, remember };
         const r = await api("/api/host/import", { method: "POST", body: JSON.stringify(payload) });
         const s = r.summary;
         const message =
           r.kind === "transactions"
-            ? `${r.platform} · ${s.new_rows} new deposit record(s)` +
-              (s.skipped_rows ? `, ${s.skipped_rows} already uploaded (skipped)` : "") +
+            ? `${r.platform} · ${gameName(s.game)} · ${s.new_rows} new deposit record(s)` +
+              (s.skipped_rows ? `, ${s.skipped_rows} already uploaded` : "") +
+              (s.tagged_rows ? ` (${s.tagged_rows} of those now tagged ${gameName(s.game)})` : "") +
               ` · ${shortTime(s.first)} → ${shortTime(s.last)} · in ${money(s.total_in)}` +
               (Number(s.total_out) ? ` · out ${money(s.total_out)}` : "")
-            : `${prettyDate(s.business_date)} · ${r.platform} · ${s.accounts} players · in ${money(s.total_in)} · out ${money(s.total_out)} · net ${money(s.gross_net)}` +
+            : `${prettyDate(s.business_date)} · ${r.platform} · ${gameName(s.game)} · ${s.accounts} players · in ${money(s.total_in)} · out ${money(s.total_out)} · net ${money(s.gross_net)}` +
               (s.is_complete ? " · full day ✓" : ` · PARTIAL (through ${r.periodEnd.slice(11, 16)}) — upload the full day later`);
-        out.push({ file: f.name, ok: true, message, warnings: r.warnings, unlinked: r.unlinkedInFile });
+        const warnings = [...(r.warnings || [])];
+        if (s?.conflicts) {
+          warnings.unshift(`${s.conflicts} deposit(s) in this file were already tagged as the OTHER game and were left unchanged — check you picked the right game.`);
+        }
+        out.push({ file: f.name, ok: !s?.conflicts, message, warnings, unlinked: r.unlinkedInFile });
       } catch (e: any) {
         out.push({ file: f.name, ok: false, message: e.message });
       }
@@ -262,6 +284,8 @@ export default function HostImportPage() {
     }
     setUploading(false);
     setFiles([]);
+    setGame(""); // back to automatic for the next upload
+    setRemember(false);
     const input = document.getElementById("report-file") as HTMLInputElement | null;
     if (input) input.value = "";
     refresh();
@@ -278,7 +302,10 @@ export default function HostImportPage() {
       <div style={S.wrap}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <h1 style={S.h1}>Daily Game Report</h1>
-          <Link href="/host" style={{ color: "#93c5fd", textDecoration: "underline" }}>← Back to Host Console</Link>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <Link href="/host/payments" style={{ color: "#93c5fd", textDecoration: "underline" }}>Payments</Link>
+            <Link href="/host" style={{ color: "#93c5fd", textDecoration: "underline" }}>← Back to Host Console</Link>
+          </div>
         </div>
 
         {/* 1. Upload */}
@@ -286,15 +313,30 @@ export default function HostImportPage() {
           <h2 style={S.h2}>1. Upload yesterday&apos;s report</h2>
           <ol style={{ margin: "0 0 14px", paddingLeft: 18, lineHeight: 1.7, fontSize: 14 }}>
             <li>
-              <b>zeusgames panel (CSV):</b> open the per-player report (starts with &quot;Account&quot;), set <b>yesterday 5:00 AM → today 4:59 AM</b>, export.{" "}
+              <b>Fire Phoenix — zeusgames panel (CSV):</b> open the per-player report (starts with &quot;Account&quot;), set <b>yesterday 5:00 AM → today 4:59 AM</b>, export.{" "}
               <b>Don&apos;t rename the file</b> — the date is read from the file name. Re-uploading a day replaces it.
             </li>
             <li>
-              <b>Zeusgames2 panel — Dragon Fury + SLOTMANIA (Excel):</b> Record Enquiry → top-up records, both games ticked, press <b>Yesterday</b>, export.
+              <b>Zeusgames2 panel — Dragon Fury &amp; SLOTMANIA (Excel):</b> Record Enquiry → top-up records, tick <b>one game only</b>, press <b>Yesterday</b>, export.
+              Then do the same for the other game. Upload each file with the matching game selected below.
               Each deposit has an order number, so overlapping or repeated uploads are skipped automatically.
             </li>
-            <li>Choose one or more files below and press Upload.</li>
+            <li>
+              Choose one or more files below and press Upload. Leave the game on <b>Automatic</b> for panels that only carry one game;
+              pick the game for mixed panels (Zeusgames2) or a panel you&apos;re uploading for the first time.
+            </li>
           </ol>
+          {panels.length > 0 && (
+            <p style={{ ...S.muted, margin: "0 0 12px" }}>
+              Known panels:{" "}
+              {panels.map((p, i) => (
+                <span key={p.platform}>
+                  {i > 0 ? " · " : ""}
+                  <b>{p.platform}</b> → {p.default_game ? gameName(p.default_game) : "choose game each upload"}
+                </span>
+              ))}
+            </p>
+          )}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <input
               id="report-file"
@@ -304,6 +346,17 @@ export default function HostImportPage() {
               onChange={(e) => setFiles(Array.from(e.target.files || []))}
               style={{ color: "#e5e7eb" }}
             />
+            <select value={game} onChange={(e) => { setGame(e.target.value); setRemember(false); }} style={S.input}>
+              <option value="">Game: Automatic (panel&apos;s usual game)</option>
+              {games.map((g) => <option key={g.code} value={g.code}>{g.name}</option>)}
+              <option value="both">Several games (not separated)</option>
+            </select>
+            {game && game !== "both" && (
+              <label style={{ ...S.muted, display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                This panel only has this game — remember it
+              </label>
+            )}
             <button style={S.btn} disabled={!files.length || uploading} onClick={upload}>
               {uploading ? "Uploading…" : files.length > 1 ? `Upload ${files.length} files` : "Upload"}
             </button>
@@ -348,7 +401,7 @@ export default function HostImportPage() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    {["Day", "Store", "Status", "Players", "In", "Out", "Net", "Uploaded"].map((h) => <th key={h} style={S.th}>{h}</th>)}
+                    {["Day", "Store", "Game", "Status", "Players", "In", "Out", "Net", "Uploaded"].map((h) => <th key={h} style={S.th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -356,6 +409,7 @@ export default function HostImportPage() {
                     <tr key={d.id}>
                       <td style={S.td}>{prettyDate(d.business_date)}</td>
                       <td style={S.td}>{d.platform}</td>
+                      <td style={S.td}>{gameName(d.game)}</td>
                       <td style={{ ...S.td, ...(d.is_complete ? S.ok : S.warn) }}>{d.is_complete ? "Full day" : `Partial to ${d.period_end.slice(11, 16)}`}</td>
                       <td style={S.td}>{d.account_count}</td>
                       <td style={S.td}>{money(d.total_in)}</td>
@@ -379,12 +433,13 @@ export default function HostImportPage() {
             <div style={{ overflowX: "auto" }}>
               <table style={S.table}>
                 <thead>
-                  <tr>{["Store", "Covers", "Players", "In", "New / skipped", "Uploaded"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
+                  <tr>{["Store", "Game", "Covers", "Players", "In", "New / skipped", "Uploaded"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr>
                 </thead>
                 <tbody>
                   {txnUploads.map((u) => (
                     <tr key={u.id}>
                       <td style={S.td}>{u.platform}</td>
+                      <td style={S.td}>{gameName(u.game)}</td>
                       <td style={S.td}>{shortTime(u.period_start)} → {shortTime(u.period_end)}</td>
                       <td style={S.td}>{u.account_count}</td>
                       <td style={S.td}>{money(u.total_in)}</td>

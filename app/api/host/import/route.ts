@@ -29,7 +29,34 @@ async function unlinkedAmong(platform: string, accounts: string[]) {
   return (data || []).map((u) => u.account_number);
 }
 
-async function importExcel(filename: string, base64: string, userId: string) {
+type GameChoice = { game?: string; remember?: boolean };
+
+// Resolve which game a file belongs to.
+//  - a specific game code from the dropdown wins (optionally remembered as the panel's usual game)
+//  - "both" = several games, not separated
+//  - "" / missing = use the panel's usual game; error if the panel has none
+async function resolveGame(platform: string, choice: GameChoice): Promise<{ game: string | null; error?: string }> {
+  await supabaseAdmin.from("platform_panels").upsert({ platform }, { onConflict: "platform", ignoreDuplicates: true });
+  const { data: panel } = await supabaseAdmin.from("platform_panels").select("default_game").eq("platform", platform).maybeSingle();
+  const chosen = (choice.game || "").trim();
+
+  if (chosen === "both") return { game: null };
+  if (chosen) {
+    const { data: g } = await supabaseAdmin.from("games").select("code").eq("code", chosen).maybeSingle();
+    if (!g) return { game: null, error: `Unknown game "${chosen}".` };
+    if (choice.remember && !panel?.default_game) {
+      await supabaseAdmin.from("platform_panels").update({ default_game: chosen }).eq("platform", platform);
+    }
+    return { game: chosen };
+  }
+  if (panel?.default_game) return { game: panel.default_game };
+  return {
+    game: null,
+    error: `The "${platform}" panel carries more than one game (or is new). Choose the game in the dropdown and upload again.`,
+  };
+}
+
+async function importExcel(filename: string, base64: string, userId: string, choice: GameChoice) {
   let table: unknown[][];
   try {
     table = (await readXlsxFile(Buffer.from(base64, "base64"))) as unknown[][];
@@ -55,11 +82,15 @@ async function importExcel(filename: string, base64: string, userId: string) {
   }
   if (!parsed.rows.length) return json({ error: "The file has no deposit rows, so nothing was changed." }, 400);
 
+  const g = await resolveGame(parsed.platform, choice);
+  if (g.error) return json({ error: g.error }, 400);
+
   const { data, error } = await supabaseAdmin.rpc("import_platform_transactions", {
     p_platform: parsed.platform,
     p_source_file: filename,
     p_uploaded_by: userId,
     p_rows: parsed.rows,
+    p_game: g.game,
   });
   if (error) {
     console.error("import_platform_transactions error:", error);
@@ -81,12 +112,14 @@ export async function POST(req: Request) {
   if (!ctx) return response!;
 
   try {
-    const { filename, content, base64 } = (await req.json()) as { filename?: string; content?: string; base64?: string };
+    const { filename, content, base64, game, remember } = (await req.json()) as {
+      filename?: string; content?: string; base64?: string; game?: string; remember?: boolean;
+    };
     if (!filename) return json({ error: "Missing file." }, 400);
 
     if (typeof base64 === "string") {
       if (base64.length > 3_000_000) return json({ error: "File is too large (max about 2 MB)." }, 400);
-      return await importExcel(filename, base64, ctx.userId);
+      return await importExcel(filename, base64, ctx.userId, { game, remember });
     }
 
     if (typeof content !== "string") return json({ error: "Missing file." }, 400);
@@ -108,6 +141,9 @@ export async function POST(req: Request) {
       return json({ error: "The file has no player rows, so nothing was changed." }, 400);
     }
 
+    const g = await resolveGame(parsed.platform, { game, remember });
+    if (g.error) return json({ error: g.error }, 400);
+
     const { data, error } = await supabaseAdmin.rpc("import_platform_day", {
       p_platform: parsed.platform,
       p_period_start: parsed.periodStart,
@@ -115,6 +151,7 @@ export async function POST(req: Request) {
       p_source_file: filename,
       p_uploaded_by: ctx.userId,
       p_rows: parsed.rows,
+      p_game: g.game,
     });
     if (error) {
       console.error("import_platform_day error:", error);
